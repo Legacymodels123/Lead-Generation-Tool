@@ -1,0 +1,676 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Legacy Scale Models — Lead Intelligence</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link href="https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800&family=Audiowide&display=swap" rel="stylesheet" />
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --red: #E30609;
+    --red-dark: #b80508;
+    --black: #0a0a0a;
+    --black2: #151515;
+    --black3: #1e1e1e;
+    --gray: #DCDEDE;
+    --gray2: #f4f4f4;
+    --gray3: #e8e8e8;
+    --text: #111111;
+    --muted: #888;
+    --border: #e5e5e5;
+    --sidebar-w: 220px;
+    --panel-w: 380px;
+  }
+
+  body { font-family: 'Montserrat', sans-serif; background: var(--gray2); color: var(--text); display: flex; height: 100vh; overflow: hidden; }
+
+  /* ── SIDEBAR ── */
+  .sidebar {
+    width: var(--sidebar-w); flex-shrink: 0;
+    background: var(--black); display: flex; flex-direction: column;
+    border-right: 1px solid #222;
+  }
+  .sidebar-logo {
+    padding: 24px 20px 20px;
+    border-bottom: 1px solid #222;
+  }
+  .logo-mark {
+    display: flex; align-items: center; gap: 10px;
+  }
+  .logo-icon {
+    width: 36px; height: 36px; background: var(--red);
+    clip-path: polygon(0 0, 80% 0, 100% 20%, 100% 100%, 20% 100%, 0 80%);
+    display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0;
+  }
+  .logo-icon span { color: #fff; font-weight: 800; font-size: 16px; }
+  .logo-text { display: flex; flex-direction: column; }
+  .logo-name { color: #fff; font-weight: 800; font-size: 13px; letter-spacing: 0.02em; line-height: 1.2; }
+  .logo-sub { font-family: 'Audiowide', sans-serif; color: var(--red); font-size: 8px; letter-spacing: 0.12em; text-transform: uppercase; margin-top: 2px; }
+
+  .sidebar-section { padding: 16px 12px 8px; }
+  .sidebar-label { font-family: 'Audiowide', sans-serif; font-size: 8px; color: #444; letter-spacing: 0.14em; text-transform: uppercase; padding: 0 8px; margin-bottom: 6px; }
+
+  .nav-item {
+    display: flex; align-items: center; gap: 10px;
+    padding: 9px 12px; border-radius: 6px; cursor: pointer;
+    color: #777; font-size: 13px; font-weight: 500;
+    transition: all .15s; margin-bottom: 2px;
+  }
+  .nav-item:hover { background: #1a1a1a; color: #ccc; }
+  .nav-item.active { background: #1e0002; color: #fff; }
+  .nav-item.active .nav-dot { background: var(--red); }
+  .nav-dot { width: 6px; height: 6px; border-radius: 50%; background: #333; flex-shrink: 0; }
+  .nav-badge {
+    margin-left: auto; background: var(--red); color: #fff;
+    font-size: 10px; font-weight: 700; padding: 1px 6px; border-radius: 10px;
+  }
+
+  .sidebar-bottom {
+    margin-top: auto; padding: 16px; border-top: 1px solid #1e1e1e;
+  }
+  .user-pill {
+    display: flex; align-items: center; gap: 10px;
+    padding: 8px 10px; border-radius: 8px; background: #161616;
+  }
+  .user-avatar {
+    width: 28px; height: 28px; border-radius: 50%;
+    background: var(--red); color: #fff;
+    font-size: 12px; font-weight: 700;
+    display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+  }
+  .user-info { min-width: 0; }
+  .user-name { color: #eee; font-size: 12px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .user-role { color: #555; font-size: 10px; }
+
+  /* ── MAIN ── */
+  .main { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+
+  /* ── TOPBAR ── */
+  .topbar {
+    background: #fff; border-bottom: 1px solid var(--border);
+    padding: 0 24px; height: 56px;
+    display: flex; align-items: center; gap: 12px; flex-shrink: 0;
+  }
+  .topbar-title { font-weight: 800; font-size: 15px; color: var(--text); }
+  .topbar-sub { font-size: 12px; color: var(--muted); margin-left: 4px; }
+  .topbar-spacer { flex: 1; }
+  .search-box {
+    display: flex; align-items: center; gap: 8px;
+    background: var(--gray2); border: 1px solid var(--border);
+    border-radius: 8px; padding: 7px 12px; width: 220px;
+  }
+  .search-box input {
+    border: none; background: transparent; font-family: 'Montserrat', sans-serif;
+    font-size: 12px; color: var(--text); outline: none; width: 100%;
+  }
+  .search-icon { color: #bbb; font-size: 14px; flex-shrink: 0; }
+  .btn-primary {
+    background: var(--red); color: #fff; border: none; cursor: pointer;
+    font-family: 'Montserrat', sans-serif; font-weight: 700; font-size: 12px;
+    padding: 8px 16px; border-radius: 7px; letter-spacing: 0.02em;
+    transition: background .15s;
+  }
+  .btn-primary:hover { background: var(--red-dark); }
+
+  /* ── CONTENT ── */
+  .content { flex: 1; overflow: hidden; display: flex; flex-direction: column; }
+
+  /* ── STATS BAR ── */
+  .stats-bar {
+    padding: 16px 24px;
+    display: flex; gap: 12px; align-items: stretch; flex-shrink: 0;
+  }
+  .stat-card {
+    background: #fff; border: 1px solid var(--border); border-radius: 10px;
+    padding: 14px 18px; flex: 1;
+  }
+  .stat-label { font-family: 'Audiowide', sans-serif; font-size: 8px; color: var(--muted); letter-spacing: 0.1em; text-transform: uppercase; margin-bottom: 6px; }
+  .stat-value { font-weight: 800; font-size: 22px; color: var(--text); line-height: 1; }
+  .stat-value.red { color: var(--red); }
+  .stat-value.green { color: #16a34a; }
+  .stat-value.orange { color: #ea580c; }
+  .stat-delta { font-size: 11px; color: var(--muted); margin-top: 4px; }
+
+  /* Funnel */
+  .funnel-card {
+    background: #fff; border: 1px solid var(--border); border-radius: 10px;
+    padding: 14px 18px; flex: 2.2;
+  }
+  .funnel-label { font-family: 'Audiowide', sans-serif; font-size: 8px; color: var(--muted); letter-spacing: 0.1em; text-transform: uppercase; margin-bottom: 10px; }
+  .funnel-stages { display: flex; align-items: flex-end; gap: 3px; height: 36px; }
+  .funnel-stage { display: flex; flex-direction: column; align-items: center; gap: 3px; flex: 1; }
+  .funnel-bar { width: 100%; background: var(--gray3); border-radius: 3px; transition: height .3s; }
+  .funnel-bar.s1 { background: #3b82f6; }
+  .funnel-bar.s2 { background: #a855f7; }
+  .funnel-bar.s3 { background: #f97316; }
+  .funnel-bar.s4 { background: #22c55e; }
+  .funnel-bar.s5 { background: var(--red); }
+  .funnel-stage-label { font-size: 9px; color: var(--muted); white-space: nowrap; margin-top: 4px; }
+  .funnel-stage-num { font-size: 11px; font-weight: 700; color: var(--text); }
+
+  /* ── BATCH BANNER ── */
+  .batch-banner {
+    margin: 0 24px 12px;
+    background: #0a0a0a;
+    border-radius: 10px;
+    padding: 12px 18px;
+    display: flex; align-items: center; gap: 12px; flex-shrink: 0;
+  }
+  .batch-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--red); flex-shrink: 0; animation: pulse 2s infinite; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
+  .batch-text { font-size: 12px; color: #ccc; }
+  .batch-text strong { color: #fff; font-weight: 700; }
+  .batch-count {
+    margin-left: auto; background: var(--red); color: #fff;
+    font-size: 11px; font-weight: 700; padding: 3px 10px; border-radius: 20px;
+  }
+
+  /* ── FILTER BAR ── */
+  .filter-bar {
+    padding: 0 24px 12px;
+    display: flex; gap: 6px; align-items: center; flex-wrap: wrap; flex-shrink: 0;
+  }
+  .filter-pill {
+    padding: 5px 12px; border-radius: 20px; font-size: 11px; font-weight: 600;
+    border: 1px solid var(--border); background: #fff; color: var(--muted);
+    cursor: pointer; transition: all .15s; white-space: nowrap;
+  }
+  .filter-pill:hover { border-color: var(--red); color: var(--red); }
+  .filter-pill.active { background: var(--red); color: #fff; border-color: var(--red); }
+  .filter-sep { width: 1px; height: 20px; background: var(--border); margin: 0 4px; }
+
+  /* ── TABLE AREA ── */
+  .table-area {
+    flex: 1; overflow-y: auto; padding: 0 24px 24px;
+    display: flex; gap: 16px;
+  }
+  .table-wrap { flex: 1; min-width: 0; }
+
+  table { width: 100%; border-collapse: collapse; }
+  thead tr { background: #fff; border-bottom: 2px solid var(--border); position: sticky; top: 0; z-index: 2; }
+  th {
+    text-align: left; padding: 10px 14px;
+    font-family: 'Audiowide', sans-serif; font-size: 8px; color: var(--muted);
+    letter-spacing: 0.1em; text-transform: uppercase; white-space: nowrap;
+    background: #fff;
+  }
+  tbody tr {
+    background: #fff; border-bottom: 1px solid var(--border);
+    cursor: pointer; transition: background .1s;
+  }
+  tbody tr:hover { background: #fafafa; }
+  tbody tr.selected { background: #fff5f5; border-left: 3px solid var(--red); }
+  td { padding: 11px 14px; vertical-align: middle; }
+
+  .company-cell { display: flex; align-items: center; gap: 10px; }
+  .company-flag { font-size: 18px; line-height: 1; flex-shrink: 0; }
+  .company-name { font-weight: 700; font-size: 13px; color: var(--text); }
+  .company-meta { font-size: 11px; color: var(--muted); margin-top: 1px; }
+
+  .contact-name { font-size: 12px; font-weight: 600; color: var(--text); }
+  .contact-title { font-size: 11px; color: var(--muted); }
+
+  .score-wrap { display: flex; align-items: center; gap: 6px; }
+  .score-bar-bg { width: 40px; height: 4px; background: var(--gray3); border-radius: 2px; overflow: hidden; }
+  .score-bar { height: 100%; border-radius: 2px; }
+  .score-num { font-size: 12px; font-weight: 700; }
+
+  .status-pill {
+    display: inline-flex; padding: 3px 8px; border-radius: 12px;
+    font-size: 10px; font-weight: 700; white-space: nowrap;
+  }
+  .s-nieuw { background: #eff6ff; color: #1d4ed8; }
+  .s-bekeken { background: #fefce8; color: #92400e; }
+  .s-verstuurd { background: #f5f3ff; color: #6d28d9; }
+  .s-opvolgen { background: #fff7ed; color: #c2410c; }
+  .s-gewonnen { background: #f0fdf4; color: #15803d; }
+  .s-verloren { background: #fef2f2; color: #b91c1c; }
+
+  .actions-cell { display: flex; gap: 5px; align-items: center; }
+  .action-btn {
+    padding: 4px 8px; border-radius: 5px; border: 1px solid var(--border);
+    background: #fff; font-size: 10px; font-weight: 600; cursor: pointer;
+    color: var(--muted); transition: all .15s; white-space: nowrap;
+    font-family: 'Montserrat', sans-serif;
+  }
+  .action-btn:hover { border-color: var(--red); color: var(--red); background: #fff5f5; }
+  .action-btn.linkedin { color: #0077b5; border-color: #0077b5; }
+  .action-btn.linkedin:hover { background: #f0f8ff; }
+
+  .batch-badge {
+    font-size: 9px; padding: 2px 6px; border-radius: 4px;
+    background: #0a0a0a; color: #888; font-weight: 600;
+  }
+  .batch-badge.new-batch { background: var(--red); color: #fff; }
+
+  /* ── SIDE PANEL ── */
+  .side-panel {
+    width: var(--panel-w); flex-shrink: 0;
+    background: #fff; border-radius: 12px;
+    border: 1px solid var(--border);
+    overflow-y: auto; overflow-x: hidden;
+    display: none;
+    align-self: flex-start;
+    position: sticky; top: 0;
+    max-height: calc(100vh - 220px);
+  }
+  .side-panel.open { display: block; }
+
+  .panel-header {
+    background: var(--black); padding: 20px;
+    position: relative; overflow: hidden;
+  }
+  /* diagonal accent */
+  .panel-header::after {
+    content: '';
+    position: absolute; top: -20px; right: -30px;
+    width: 80px; height: 120px;
+    background: var(--red);
+    transform: skewX(-12deg);
+    opacity: .7;
+  }
+  .panel-close {
+    position: absolute; top: 12px; right: 12px; z-index: 2;
+    background: rgba(255,255,255,.1); border: none; color: #fff;
+    width: 24px; height: 24px; border-radius: 50%;
+    font-size: 14px; cursor: pointer; display: flex; align-items: center; justify-content: center;
+  }
+  .panel-flag { font-size: 28px; line-height: 1; position: relative; z-index: 1; }
+  .panel-company { font-weight: 800; font-size: 16px; color: #fff; margin-top: 6px; position: relative; z-index: 1; }
+  .panel-sector { font-family: 'Audiowide', sans-serif; font-size: 8px; color: #888; letter-spacing: 0.1em; text-transform: uppercase; margin-top: 4px; position: relative; z-index: 1; }
+
+  .panel-body { padding: 16px; }
+
+  .panel-score-row {
+    display: flex; align-items: center; justify-content: space-between;
+    background: var(--gray2); border-radius: 8px; padding: 10px 14px; margin-bottom: 14px;
+  }
+  .panel-score-label { font-size: 11px; color: var(--muted); }
+  .panel-score-value { font-size: 20px; font-weight: 800; }
+
+  .panel-section { margin-bottom: 14px; }
+  .panel-section-title {
+    font-family: 'Audiowide', sans-serif; font-size: 8px; color: var(--muted);
+    letter-spacing: 0.1em; text-transform: uppercase; margin-bottom: 8px;
+    padding-bottom: 6px; border-bottom: 1px solid var(--border);
+  }
+  .panel-kv { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 5px; }
+  .panel-k { font-size: 11px; color: var(--muted); }
+  .panel-v { font-size: 12px; font-weight: 600; color: var(--text); }
+
+  .contact-card {
+    background: var(--gray2); border-radius: 8px; padding: 12px;
+    display: flex; align-items: center; gap: 12px; margin-bottom: 14px;
+  }
+  .contact-avatar {
+    width: 36px; height: 36px; border-radius: 50%;
+    background: var(--black); color: #fff;
+    font-size: 13px; font-weight: 800;
+    display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+  }
+  .contact-card-name { font-size: 13px; font-weight: 700; }
+  .contact-card-title { font-size: 11px; color: var(--muted); margin-top: 2px; }
+  .linkedin-link {
+    margin-left: auto; display: flex; align-items: center; gap: 4px;
+    font-size: 11px; color: #0077b5; text-decoration: none; font-weight: 600;
+    padding: 4px 8px; border-radius: 5px; border: 1px solid #0077b5;
+    white-space: nowrap;
+  }
+  .linkedin-link:hover { background: #f0f8ff; }
+
+  .message-box {
+    background: var(--gray2); border-radius: 8px; padding: 12px;
+    font-size: 12px; color: #444; line-height: 1.6; max-height: 180px; overflow-y: auto;
+  }
+
+  .copy-btn {
+    width: 100%; margin-top: 8px;
+    background: var(--red); color: #fff; border: none; cursor: pointer;
+    font-family: 'Montserrat', sans-serif; font-weight: 700; font-size: 12px;
+    padding: 9px; border-radius: 7px; transition: background .15s;
+    letter-spacing: 0.02em;
+  }
+  .copy-btn:hover { background: var(--red-dark); }
+
+  .status-buttons { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 5px; }
+  .status-btn {
+    padding: 6px 4px; border-radius: 6px; border: 1px solid var(--border);
+    background: #fff; font-size: 10px; font-weight: 600; cursor: pointer;
+    color: var(--muted); transition: all .15s; font-family: 'Montserrat', sans-serif;
+    text-align: center;
+  }
+  .status-btn:hover { border-color: var(--red); color: var(--red); }
+  .status-btn.active-s { background: var(--red); color: #fff; border-color: var(--red); }
+
+  .notes-input {
+    width: 100%; border: 1px solid var(--border); border-radius: 7px;
+    padding: 8px 10px; font-family: 'Montserrat', sans-serif; font-size: 12px;
+    color: var(--text); resize: vertical; min-height: 60px; outline: none;
+    transition: border-color .15s;
+  }
+  .notes-input:focus { border-color: var(--red); }
+
+  /* scrollbar */
+  ::-webkit-scrollbar { width: 4px; height: 4px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: #ddd; border-radius: 4px; }
+</style>
+</head>
+<body>
+
+<script>
+const FLAGS = { Duitsland:'🇩🇪', Nederland:'🇳🇱', België:'🇧🇪', Noorwegen:'🇳🇴', Portugal:'🇵🇹' }
+const STATUS_LABELS = { nieuw:'Nieuw', bekeken:'Bekeken', verstuurd:'Verstuurd', opvolgen:'Opvolgen', gewonnen:'Gewonnen', verloren:'Verloren' }
+const STATUS_CLASS = { nieuw:'s-nieuw', bekeken:'s-bekeken', verstuurd:'s-verstuurd', opvolgen:'s-opvolgen', gewonnen:'s-gewonnen', verloren:'s-verloren' }
+const SCORE_COLOR = s => s >= 85 ? '#16a34a' : s >= 70 ? '#ea580c' : '#888'
+
+const prospects = [
+  { id:'1', company:'Schröder Landmaschinen', country:'Duitsland', employees:1200, revenue:'€100M+', sector:'Agri Machinery', contactName:'Heiner Schröder', contactTitle:'General Manager', linkedinUrl:'https://linkedin.com/in/heiner-schroder', status:'nieuw', batch:'2026-06-12', isNew:false, notes:'', message:'Hi Heiner, ik ben Levi van Legacy Scale Models — we rebranden en lanceren twee premium merken: Universal Hobbies en Weise Toys. Met Schröder Gruppe die 43 locaties vertegenwoordigt door heel Europa wil ik graag een samenwerking verkennen: op maat gemaakte schaalmodellen voor showrooms, klantengeschenken en evenementen. We bieden dit aan een select groepje partijen vóór de publieke lancering. Zou je hier open voor staan?' },
+  { id:'2', company:'Royal Agrifirm Group', country:'Nederland', employees:1900, revenue:'€500M+', sector:'Agri Trading', contactName:'Caroline Lenaerts', contactTitle:'Marketing Comm. Manager EMEA', linkedinUrl:'https://linkedin.com/in/caroline-lenaerts', status:'bekeken', batch:'2026-06-12', isNew:false, notes:'LinkedIn profiel gevonden. Goed moment tijdens Agritechnica.', message:'Hi Caroline, ik ben Levi van Legacy Scale Models. We breiden uit met twee premium lijnen: Universal Hobbies en Weise Toys. De internationale schaal van Royal Agrifirm maakt jullie een natuurlijke fit voor co-branded schaalmodellen — ideaal voor boerderijrelaties, beurzen en gifting. Vroege partnervoorwaarden beschikbaar.' },
+  { id:'3', company:'Zweegers Equipment Group', country:'Nederland', employees:500, revenue:'€393M', sector:'Agri Machinery', contactName:'Ronald Slaats', contactTitle:'Group Managing Director', linkedinUrl:'https://linkedin.com/in/ronald-slaats', status:'verstuurd', batch:'2026-06-12', isNew:false, notes:'Bericht verzonden via LinkedIn op 13 juni.', message:'Hi Ronald, ik ben Levi van Legacy Scale Models. We lanceren twee premium merken: Universal Hobbies en Weise Toys. Met de indrukwekkende groei van ZWEQ is er een fit voor co-branded schaalmodellen — showrooms, klantloyaliteit, evenementen. Graag vroege partnervoorwaarden bespreken.' },
+  { id:'4', company:'HH Agri / Van der Haeghe', country:'België', employees:200, revenue:'€50M+', sector:'Agri Dealer', contactName:'Julien Vanderhaeghe', contactTitle:'COO', linkedinUrl:'https://linkedin.com/in/julien-vanderhaeghe', status:'opvolgen', batch:'2026-06-12', isNew:false, notes:'Heeft gereageerd, wil meer info over prijzen.', message:'Hi Julien, ik ben Levi van Legacy Scale Models. We breiden uit met twee premium merken — Universal Hobbies en Weise Toys. Als exclusief Fendt-distributeur in België zijn op maat gemaakte Fendt-schaalmodellen voor showrooms en klantengeschenken een natuurlijke fit.' },
+  { id:'5', company:'Mechan International', country:'Nederland', employees:300, revenue:'€100M+', sector:'Agri Importer', contactName:'Ronald Slaats', contactTitle:'CEO', linkedinUrl:'https://linkedin.com/in/ronald-slaats-mechan', status:'gewonnen', batch:'2026-06-12', isNew:false, notes:'Deal gesloten! 500 MF-modellen voor dealer gifting.', message:'Hi Ronald, ik ben Levi van Legacy Scale Models. We lanceren Universal Hobbies en Weise Toys. De snelle expansie van Mechan met Massey Ferguson door Europa maakt jullie een goede fit voor co-branded schaalmodellen. Vroege partnervoorwaarden beschikbaar.' },
+  { id:'6', company:'Akershus Traktor A/S', country:'Noorwegen', employees:200, revenue:'€20M', sector:'Agri Dealer', contactName:'Lars Eriksen', contactTitle:'General Manager', linkedinUrl:'https://linkedin.com/company/akershus-traktor', status:'nieuw', batch:'2026-06-13', isNew:true, notes:'', message:'Hi Lars, ik ben Levi van Legacy Scale Models. We breiden uit met Universal Hobbies en Weise Toys. Als toonaangevende Noorse agri-dealer zijn op maat gemaakte schaalmodellen krachtig voor showrooms en evenementen. We benaderen geselecteerde dealers vóór de lancering.' },
+  { id:'7', company:'Royal De Boer Stalinrichtingen', country:'Nederland', employees:115, revenue:'€30M', sector:'Dairy Equipment', contactName:'Peter de Boer', contactTitle:'Commercial Director', linkedinUrl:'https://linkedin.com/company/royal-de-boer', status:'nieuw', batch:'2026-06-13', isNew:true, notes:'', message:'Hi Peter, ik ben Levi van Legacy Scale Models — uitbreidend met Universal Hobbies en Weise Toys. Op maat gemaakte schaalmodellen van jullie apparatuur zijn een unieke toevoeging aan beurspresence en relatiegeschenken. Vroege partnervoorwaarden beschikbaar.' },
+  { id:'8', company:'BayWa AG', country:'Duitsland', employees:20000, revenue:'€17B', sector:'Agri Trading', contactName:'Thomas Müller', contactTitle:'Marketing Manager Agri Division', linkedinUrl:'https://linkedin.com/company/baywa-ag', status:'verloren', batch:'2026-06-13', isNew:true, notes:'Geen interesse op dit moment. Budget bevroren.', message:'Hi Thomas, ik ben Levi van Legacy Scale Models — uitbreidend met Universal Hobbies en Weise Toys. De schaal van BayWa maakt jullie een interessante partner voor co-branded schaalmodellen bij beurzen en loyaliteitsprogrammas.' },
+  { id:'9', company:'Agromais', country:'Portugal', employees:75, revenue:'€15M', sector:'Agri Dealer', contactName:'João Ferreira', contactTitle:'Commercial Director', linkedinUrl:'https://linkedin.com/company/agromais', status:'bekeken', batch:'2026-06-13', isNew:true, notes:'', message:'Hi João, ik ben Levi van Legacy Scale Models. We rebranden en lanceren Universal Hobbies en Weise Toys. Agromais is precies het type partner — schaalmodellen van de tractoren die jullie verkopen vallen op bij beurzen en versterken klantrelaties.' },
+  { id:'10', company:'CLAAS KGaA', country:'Duitsland', employees:12000, revenue:'€4.9B', sector:'Agri Manufacturer', contactName:'Anna Schmidt', contactTitle:'Brand & Marketing Manager', linkedinUrl:'https://linkedin.com/company/claas', status:'opvolgen', batch:'2026-06-13', isNew:true, notes:'Doorverwezen naar Brand Partnerships team.', message:'Hi Anna, ik ben Levi van Legacy Scale Models. We lanceren twee premium lijnen — Universal Hobbies en Weise Toys. CLAAS-schaalmodellen hebben enorme aantrekkingskracht voor beurzen, collector editions en dealergeschenken. Graag co-branded samenwerking verkennen.' },
+]
+
+// Fit score: based on employees + sector match
+function fitScore(p) {
+  let s = 50
+  if (p.employees >= 1000) s += 30
+  else if (p.employees >= 500) s += 25
+  else if (p.employees >= 200) s += 18
+  else if (p.employees >= 100) s += 10
+  if (['Agri Machinery','Agri Importer','Agri Dealer','Agri Manufacturer'].includes(p.sector)) s += 15
+  else if (p.sector === 'Agri Trading') s += 10
+  if (p.country === 'Nederland') s += 5
+  return Math.min(s, 99)
+}
+
+prospects.forEach(p => p.score = fitScore(p))
+
+let selectedId = null
+let statusFilter = 'alle'
+let search = ''
+
+function render() {
+  const filtered = prospects.filter(p => {
+    const ms = statusFilter === 'alle' || p.status === statusFilter
+    const mq = !search || p.company.toLowerCase().includes(search.toLowerCase()) || p.contactName.toLowerCase().includes(search.toLowerCase())
+    return ms && mq
+  })
+  const sel = prospects.find(p => p.id === selectedId)
+
+  const total = prospects.length
+  const nieuw = prospects.filter(p => p.status === 'nieuw').length
+  const verstuurd = prospects.filter(p => p.status === 'verstuurd').length
+  const opvolgen = prospects.filter(p => p.status === 'opvolgen').length
+  const gewonnen = prospects.filter(p => p.status === 'gewonnen').length
+  const verloren = prospects.filter(p => p.status === 'verloren').length
+  const newBatch = prospects.filter(p => p.isNew).length
+  const conv = Math.round((gewonnen / total) * 100)
+
+  const maxFunnel = Math.max(nieuw + 3, verstuurd + 2, opvolgen + 1, gewonnen, 1)
+  const funnelH = n => Math.max(8, Math.round((n / maxFunnel) * 36))
+
+  document.getElementById('app').innerHTML = `
+  <div class="sidebar">
+    <div class="sidebar-logo">
+      <div class="logo-mark">
+        <div class="logo-icon"><span>L</span></div>
+        <div class="logo-text">
+          <div class="logo-name">Legacy Scale<br>Models</div>
+          <div class="logo-sub">Lead Intelligence</div>
+        </div>
+      </div>
+    </div>
+    <div class="sidebar-section">
+      <div class="sidebar-label">Platform</div>
+      <div class="nav-item active"><div class="nav-dot"></div>Leads<span class="nav-badge">${total}</span></div>
+      <div class="nav-item"><div class="nav-dot"></div>Pipeline</div>
+      <div class="nav-item"><div class="nav-dot"></div>Batches</div>
+    </div>
+    <div class="sidebar-section">
+      <div class="sidebar-label">Beheer</div>
+      <div class="nav-item"><div class="nav-dot"></div>Instellingen</div>
+      <div class="nav-item"><div class="nav-dot"></div>Integraties</div>
+    </div>
+    <div class="sidebar-bottom">
+      <div class="user-pill">
+        <div class="user-avatar">L</div>
+        <div class="user-info">
+          <div class="user-name">Levi Kempen</div>
+          <div class="user-role">Legacy Scale Models</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="main">
+    <div class="topbar">
+      <span class="topbar-title">Lead Intelligence</span>
+      <span class="topbar-sub">— Legacy Scale Models</span>
+      <div class="topbar-spacer"></div>
+      <div class="search-box">
+        <span class="search-icon">⌕</span>
+        <input id="searchInput" type="text" placeholder="Zoek bedrijf of contact..." value="${search}" oninput="search=this.value;render()" />
+      </div>
+      <button class="btn-primary">+ Voeg lead toe</button>
+    </div>
+
+    <div class="content">
+      <!-- Stats -->
+      <div class="stats-bar">
+        <div class="stat-card">
+          <div class="stat-label">Totaal leads</div>
+          <div class="stat-value">${total}</div>
+          <div class="stat-delta">10 per nacht toegevoegd</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Nieuw</div>
+          <div class="stat-value red">${nieuw}</div>
+          <div class="stat-delta">Nog te beoordelen</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Op te volgen</div>
+          <div class="stat-value orange">${opvolgen}</div>
+          <div class="stat-delta">Actie vereist</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-label">Conversie</div>
+          <div class="stat-value green">${conv}%</div>
+          <div class="stat-delta">${gewonnen} van ${total} gewonnen</div>
+        </div>
+        <div class="funnel-card">
+          <div class="funnel-label">Pipeline funnel</div>
+          <div class="funnel-stages">
+            ${[
+              {label:'Nieuw', n:nieuw, cls:'s1'},
+              {label:'Bekeken', n:prospects.filter(p=>p.status==='bekeken').length, cls:'s2'},
+              {label:'Verstuurd', n:verstuurd, cls:'s3'},
+              {label:'Opvolgen', n:opvolgen, cls:'s4'},
+              {label:'Gewonnen', n:gewonnen, cls:'s4'},
+              {label:'Verloren', n:verloren, cls:'s5'},
+            ].map(stage => `
+              <div class="funnel-stage">
+                <div class="funnel-stage-num">${stage.n}</div>
+                <div class="funnel-bar ${stage.cls}" style="height:${funnelH(stage.n)}px"></div>
+                <div class="funnel-stage-label">${stage.label}</div>
+              </div>`).join('')}
+          </div>
+        </div>
+      </div>
+
+      <!-- Batch Banner -->
+      <div class="batch-banner">
+        <div class="batch-dot"></div>
+        <div class="batch-text"><strong>Nightly batch — 13 juni 2026</strong> &nbsp;·&nbsp; Gisteravond automatisch gegenereerd door de AI agent</div>
+        <div class="batch-count">${newBatch} nieuwe leads</div>
+      </div>
+
+      <!-- Filter pills -->
+      <div class="filter-bar">
+        ${['alle','nieuw','bekeken','verstuurd','opvolgen','gewonnen','verloren'].map(s => `
+          <div class="filter-pill ${statusFilter===s?'active':''}" onclick="statusFilter='${s}';render()">
+            ${s === 'alle' ? 'Alle leads' : STATUS_LABELS[s]}
+          </div>`).join('')}
+        <div class="filter-sep"></div>
+        <div class="filter-pill" onclick="statusFilter='nieuw';render()">🌙 Nieuwe batch</div>
+      </div>
+
+      <!-- Table + panel -->
+      <div class="table-area">
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Bedrijf</th>
+                <th>Contact</th>
+                <th>Fit score</th>
+                <th>Status</th>
+                <th>Batch</th>
+                <th>Acties</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${filtered.length === 0 ? `<tr><td colspan="6" style="text-align:center;padding:32px;color:#bbb;font-size:13px">Geen leads gevonden</td></tr>` : ''}
+              ${filtered.map(p => {
+                const score = p.score
+                const scoreColor = SCORE_COLOR(score)
+                const scorePct = score + '%'
+                return `<tr class="${selectedId===p.id?'selected':''}" onclick="selectedId='${p.id}';render()">
+                  <td>
+                    <div class="company-cell">
+                      <div class="company-flag">${FLAGS[p.country]??'🌍'}</div>
+                      <div>
+                        <div class="company-name">${p.company}</div>
+                        <div class="company-meta">${p.country} · ${p.employees.toLocaleString('nl-NL')} mw · ${p.revenue}</div>
+                      </div>
+                    </div>
+                  </td>
+                  <td>
+                    <div class="contact-name">${p.contactName}</div>
+                    <div class="contact-title">${p.contactTitle}</div>
+                  </td>
+                  <td>
+                    <div class="score-wrap">
+                      <div class="score-bar-bg"><div class="score-bar" style="width:${scorePct};background:${scoreColor}"></div></div>
+                      <span class="score-num" style="color:${scoreColor}">${score}%</span>
+                    </div>
+                  </td>
+                  <td><span class="status-pill ${STATUS_CLASS[p.status]}">${STATUS_LABELS[p.status]}</span></td>
+                  <td><span class="batch-badge ${p.isNew?'new-batch':''}">${p.isNew?'Nieuw':''+p.batch}</span></td>
+                  <td>
+                    <div class="actions-cell">
+                      <button class="action-btn" onclick="event.stopPropagation();copyMsg('${p.id}')">Kopieer</button>
+                      <a class="action-btn linkedin" href="${p.linkedinUrl}" target="_blank" onclick="event.stopPropagation()">in</a>
+                    </div>
+                  </td>
+                </tr>`
+              }).join('')}
+            </tbody>
+          </table>
+          <div style="font-size:11px;color:#bbb;margin-top:8px;padding:0 2px">${filtered.length} van ${prospects.length} leads</div>
+        </div>
+
+        <!-- Side panel -->
+        <div class="side-panel ${sel?'open':''}">
+          ${sel ? `
+          <div class="panel-header">
+            <button class="panel-close" onclick="selectedId=null;render()">×</button>
+            <div class="panel-flag">${FLAGS[sel.country]??'🌍'}</div>
+            <div class="panel-company">${sel.company}</div>
+            <div class="panel-sector">${sel.sector}</div>
+          </div>
+          <div class="panel-body">
+            <!-- Fit score -->
+            <div class="panel-score-row">
+              <div>
+                <div class="panel-score-label">Fit score</div>
+                <div style="font-size:11px;color:#bbb;margin-top:2px">Op basis van omvang & sector</div>
+              </div>
+              <div class="panel-score-value" style="color:${SCORE_COLOR(sel.score)}">${sel.score}%</div>
+            </div>
+
+            <!-- Company info -->
+            <div class="panel-section">
+              <div class="panel-section-title">Bedrijfsinfo</div>
+              <div class="panel-kv"><span class="panel-k">Land</span><span class="panel-v">${sel.country}</span></div>
+              <div class="panel-kv"><span class="panel-k">Medewerkers</span><span class="panel-v">${sel.employees.toLocaleString('nl-NL')}</span></div>
+              <div class="panel-kv"><span class="panel-k">Omzet</span><span class="panel-v">${sel.revenue}</span></div>
+              <div class="panel-kv"><span class="panel-k">Sector</span><span class="panel-v">${sel.sector}</span></div>
+              <div class="panel-kv"><span class="panel-k">Batch</span><span class="panel-v">${sel.batch}</span></div>
+            </div>
+
+            <!-- Contact -->
+            <div class="panel-section">
+              <div class="panel-section-title">Contactpersoon</div>
+              <div class="contact-card">
+                <div class="contact-avatar">${sel.contactName[0]}</div>
+                <div>
+                  <div class="contact-card-name">${sel.contactName}</div>
+                  <div class="contact-card-title">${sel.contactTitle}</div>
+                </div>
+                <a class="linkedin-link" href="${sel.linkedinUrl}" target="_blank">in LinkedIn</a>
+              </div>
+            </div>
+
+            <!-- Message -->
+            <div class="panel-section">
+              <div class="panel-section-title">Intro bericht</div>
+              <div class="message-box">${sel.message}</div>
+              <button class="copy-btn" id="copyBtnPanel" onclick="copyMsg('${sel.id}')">Kopieer bericht</button>
+            </div>
+
+            <!-- Status -->
+            <div class="panel-section">
+              <div class="panel-section-title">Status wijzigen</div>
+              <div class="status-buttons">
+                ${['nieuw','bekeken','verstuurd','opvolgen','gewonnen','verloren'].map(s => `
+                  <div class="status-btn ${sel.status===s?'active-s':''}" onclick="setStatus('${sel.id}','${s}')">${STATUS_LABELS[s]}</div>`).join('')}
+              </div>
+            </div>
+
+            <!-- Notes -->
+            <div class="panel-section">
+              <div class="panel-section-title">Notities</div>
+              <textarea class="notes-input" placeholder="Voeg een notitie toe..." onchange="setNotes('${sel.id}',this.value)">${sel.notes}</textarea>
+            </div>
+          </div>` : ''}
+        </div>
+      </div>
+    </div>
+  </div>
+  `
+}
+
+function copyMsg(id) {
+  const p = prospects.find(x => x.id === id)
+  if (!p) return
+  navigator.clipboard.writeText(p.message)
+  const btn = document.getElementById('copyBtnPanel')
+  if (btn) { btn.textContent = '✓ Gekopieerd!'; setTimeout(()=>{ btn.textContent = 'Kopieer bericht' }, 2000) }
+}
+
+function setStatus(id, status) {
+  const p = prospects.find(x => x.id === id)
+  if (p) { p.status = status; render() }
+}
+
+function setNotes(id, notes) {
+  const p = prospects.find(x => x.id === id)
+  if (p) p.notes = notes
+}
+</script>
+
+<div id="app"></div>
+<script>render()</script>
+</body>
+</html>
