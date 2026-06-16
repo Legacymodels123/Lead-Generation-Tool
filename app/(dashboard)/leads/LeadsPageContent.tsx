@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { useApp } from "@/lib/store";
 import type { LeadStatus } from "@/lib/types";
-import { STATUS_LABELS } from "@/lib/utils";
+import { STATUS_LABELS } from "@/lib/types";
 import LeadDetailPanel from "@/components/LeadDetailPanel";
 import AddLeadModal from "@/components/AddLeadModal";
 import LinkedInImport from "@/components/LinkedInImport";
@@ -291,7 +291,7 @@ export default function LeadsPageContent() {
 
         <div className="filter-bar">
           {(
-            ["alle", "nieuw", "bekeken", "verstuurd", "opvolgen", "gewonnen", "verloren"] as Filter[]
+            ["alle", "qualified", "not_qualified"] as Filter[]
           ).map((s) => (
             <button
               key={s}

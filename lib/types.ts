@@ -1,10 +1,6 @@
-export type LeadStatus =
-  | "nieuw"
-  | "bekeken"
-  | "verstuurd"
-  | "opvolgen"
-  | "gewonnen"
-  | "verloren";
+export type LeadStatus = "qualified" | "not_qualified";
+
+export type LeadSource = "manual" | "linkedin_import" | "hubspot_sync" | "ai_generated" | "batch_nightly";
 
 export type AiStatus = "idle" | "running" | "done" | "error";
 
@@ -58,6 +54,8 @@ export interface Lead {
   aiSummary?: string;
   aiNextStep?: string;
   aiStatus?: AiStatus;
+  source?: LeadSource;
+  aiQualificationScore?: number;
   contacts: Contact[];
   expanded?: boolean;
 }
@@ -104,12 +102,58 @@ export interface UserData {
   batches: Batch[];
 }
 
+export interface ColumnConfig {
+  key: string;
+  label: string;
+  visible: boolean;
+  order: number;
+  readonly?: boolean;
+}
+
+export interface WorkspaceConfig {
+  apiKeys?: {
+    openai?: string;
+    hubspot?: string;
+    lusha?: string;
+  };
+  columns?: ColumnConfig[];
+  leadStatuses?: LeadStatus[];
+}
+
 export interface Workspace {
   id: string;
   slug: string;
   name: string;
   icpConfigId: string;
+  config?: WorkspaceConfig;
 }
+
+export const STATUS_LABELS: Record<LeadStatus, string> = {
+  qualified: "✓ Gekwalificeerd",
+  not_qualified: "✗ Niet gekwalificeerd",
+};
+
+export const LEGACY_STATUS_MAPPING: Record<string, LeadStatus> = {
+  nieuw: "not_qualified",
+  bekeken: "not_qualified",
+  verstuurd: "qualified",
+  opvolgen: "qualified",
+  gewonnen: "qualified",
+  verloren: "not_qualified",
+};
+
+export const DEFAULT_COLUMNS: ColumnConfig[] = [
+  { key: "company", label: "Bedrijf", visible: true, order: 0, readonly: true },
+  { key: "market", label: "Markt", visible: true, order: 1 },
+  { key: "sector", label: "Sector", visible: true, order: 2 },
+  { key: "fitReason", label: "Waarom fit", visible: true, order: 3 },
+  { key: "employees", label: "Medewerkers", visible: true, order: 4 },
+  { key: "website", label: "Website", visible: true, order: 5 },
+  { key: "score", label: "Score", visible: true, order: 6 },
+  { key: "aiQualificationScore", label: "AI Score", visible: true, order: 7 },
+  { key: "status", label: "Status", visible: true, order: 8, readonly: true },
+  { key: "aiSummary", label: "AI Samenvatting", visible: false, order: 9 },
+];
 
 export const CREDIT_COSTS = {
   addLead: 5,
@@ -117,6 +161,7 @@ export const CREDIT_COSTS = {
   copyMessage: 0,
   enrich: 3,
   hubspotSync: 2,
+  findLeadsViaAi: 15,
 } as const;
 
 export const STARTING_CREDITS = 100;

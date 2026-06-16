@@ -4,7 +4,8 @@ import { Fragment } from "react";
 import type { Contact, Lead, LeadStatus } from "@/lib/types";
 import type { AiStatus } from "@/lib/types";
 import { getDmuRoleLabel } from "@/lib/dmu/roles";
-import { FLAGS, STATUS_LABELS, scoreColor } from "@/lib/utils";
+import { FLAGS, scoreColor } from "@/lib/utils";
+import { STATUS_LABELS } from "@/lib/types";
 
 function AiCellContent({ status, value }: { status?: AiStatus; value?: string }) {
   if (status === "running") {
@@ -34,14 +35,7 @@ function confidenceBadge(confidence?: Contact["emailConfidence"]) {
   return <span className={`conf-badge ${cls}`}>{confidence}</span>;
 }
 
-const STATUSES: LeadStatus[] = [
-  "nieuw",
-  "bekeken",
-  "verstuurd",
-  "opvolgen",
-  "gewonnen",
-  "verloren",
-];
+const STATUSES: LeadStatus[] = ["qualified", "not_qualified"];
 
 interface Props {
   leads: Lead[];

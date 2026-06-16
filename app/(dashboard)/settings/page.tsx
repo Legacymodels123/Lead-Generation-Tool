@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth";
 import { useApp } from "@/lib/store";
 import { getIcpForWorkspace, getWorkspace } from "@/lib/workspace/context";
+import ApiKeysCard from "@/components/ApiKeysCard";
 
 const PACKAGES = [
   { credits: 50, price: "€49" },
@@ -148,6 +149,8 @@ export default function SettingsPage() {
             </div>
           </div>
         </div>
+
+        <ApiKeysCard />
 
         <div className="card">
           <div className="setting-row">

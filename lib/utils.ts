@@ -9,22 +9,9 @@ export const FLAGS: Record<string, string> = {
   Portugal: "🇵🇹",
 };
 
-export const STATUS_LABELS: Record<string, string> = {
-  nieuw: "Nieuw",
-  bekeken: "Bekeken",
-  verstuurd: "Verstuurd",
-  opvolgen: "Opvolgen",
-  gewonnen: "Gewonnen",
-  verloren: "Verloren",
-};
-
 export const STATUS_CLASS: Record<string, string> = {
-  nieuw: "s-nieuw",
-  bekeken: "s-bekeken",
-  verstuurd: "s-verstuurd",
-  opvolgen: "s-opvolgen",
-  gewonnen: "s-gewonnen",
-  verloren: "s-verloren",
+  qualified: "s-qualified",
+  not_qualified: "s-not_qualified",
 };
 
 export function scoreColor(score: number): string {

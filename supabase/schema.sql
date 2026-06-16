@@ -100,6 +100,14 @@ create table if not exists public.hubspot_sync_log (
   created_at timestamptz not null default now()
 );
 
+-- Workspace configuration (API keys, columns, settings)
+alter table public.workspaces add column if not exists config jsonb default '{"apiKeys":{}, "columns":[], "leadStatuses":["qualified","not_qualified"]}'::jsonb;
+
+-- Lead source tracking
+alter table public.leads add column if not exists source text default 'manual';
+alter table public.leads add column if not exists legacy_status text;
+alter table public.leads add column if not exists ai_qualification_score integer;
+
 -- Migration for existing projects
 alter table public.leads add column if not exists workspace_id text not null default 'legacy-scale-models';
 alter table public.leads add column if not exists market text not null default '';
@@ -111,6 +119,21 @@ alter table public.batches add column if not exists workspace_id text not null d
 alter table public.leads add column if not exists ai_message text;
 alter table public.leads add column if not exists ai_summary text;
 alter table public.leads add column if not exists ai_next_step text;
+
+-- Migrate legacy status to qualified/not_qualified (initial migration)
+update public.leads set
+  legacy_status = status,
+  status = case
+    when status in ('verstuurd', 'opvolgen', 'gewonnen') then 'qualified'
+    else 'not_qualified'
+  end,
+  ai_qualification_score = case
+    when status = 'gewonnen' then 90
+    when status = 'opvolgen' then 70
+    when status = 'verstuurd' then 60
+    else 30
+  end
+where legacy_status is null;
 
 create index if not exists leads_user_id_idx on public.leads (user_id);
 create index if not exists leads_workspace_id_idx on public.leads (workspace_id);
