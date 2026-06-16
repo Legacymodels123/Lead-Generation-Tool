@@ -6,6 +6,7 @@ import { useAuth } from "@/lib/auth";
 import { useApp } from "@/lib/store";
 import { getIcpForWorkspace, getWorkspace } from "@/lib/workspace/context";
 import ApiKeysCard from "@/components/ApiKeysCard";
+import ColumnConfigCard from "@/components/ColumnConfigCard";
 
 const PACKAGES = [
   { credits: 50, price: "€49" },
@@ -151,6 +152,8 @@ export default function SettingsPage() {
         </div>
 
         <ApiKeysCard />
+
+        <ColumnConfigCard />
 
         <div className="card">
           <div className="setting-row">
