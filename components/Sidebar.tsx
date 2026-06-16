@@ -12,8 +12,8 @@ const NAV = [
 ];
 
 const ADMIN_NAV = [
+  { href: "/integrations-new", label: "Integraties" },
   { href: "/settings", label: "Instellingen" },
-  { href: "/integrations", label: "Integraties" },
 ];
 
 export default function Sidebar() {
