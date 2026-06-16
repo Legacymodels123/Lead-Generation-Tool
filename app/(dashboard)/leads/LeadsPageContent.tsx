@@ -8,6 +8,7 @@ import { STATUS_LABELS } from "@/lib/types";
 import LeadDetailPanel from "@/components/LeadDetailPanel";
 import AddLeadModal from "@/components/AddLeadModal";
 import LinkedInImport from "@/components/LinkedInImport";
+import FindLeadsViaAiModal from "@/components/FindLeadsViaAiModal";
 import LeadsGrid from "@/components/LeadsGrid";
 
 type Filter = LeadStatus | "alle";
@@ -33,6 +34,7 @@ export default function LeadsPageContent() {
   const [search, setSearch] = useState("");
   const [showAddModal, setShowAddModal] = useState(false);
   const [showLinkedInImport, setShowLinkedInImport] = useState(false);
+  const [showAiFinder, setShowAiFinder] = useState(false);
   const [runningAutomation, setRunningAutomation] = useState(false);
   const [runningAi, setRunningAi] = useState(false);
   const [runningEnrich, setRunningEnrich] = useState(false);
@@ -223,6 +225,13 @@ export default function LeadsPageContent() {
         >
           Importeer LinkedIn CSV
         </button>
+        <button
+          className="btn-secondary"
+          type="button"
+          onClick={() => setShowAiFinder(true)}
+        >
+          🤖 AI Leads zoeken
+        </button>
         <button className="btn-primary" type="button" onClick={() => setShowAddModal(true)}>
           + Voeg lead toe
         </button>
@@ -334,6 +343,15 @@ export default function LeadsPageContent() {
       {showAddModal && <AddLeadModal onClose={() => setShowAddModal(false)} />}
       {showLinkedInImport && (
         <LinkedInImport onClose={() => setShowLinkedInImport(false)} />
+      )}
+      {showAiFinder && (
+        <FindLeadsViaAiModal
+          isOpen={showAiFinder}
+          onClose={() => setShowAiFinder(false)}
+          onSuccess={() => {
+            setShowAiFinder(false);
+          }}
+        />
       )}
     </>
   );
