@@ -38,6 +38,14 @@ function saveUsers(users: User[]): void {
   localStorage.setItem(USERS_KEY, JSON.stringify(users));
 }
 
+function loadLocalSessionUser(): User | null {
+  const sessionId = localStorage.getItem(SESSION_KEY);
+  if (!sessionId) return null;
+  const found = loadUsers().find((u) => u.id === sessionId);
+  if (!found) localStorage.removeItem(SESSION_KEY);
+  return found ?? null;
+}
+
 function ensureDemoUser(): void {
   const users = loadUsers();
   if (!users.find((u) => u.email === "levi@legacy.com")) {
@@ -113,16 +121,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const authMode: "supabase" | "local" = isSupabaseAuthEnabled() ? "supabase" : "local";
 
   const refreshUser = useCallback(() => {
-    if (authMode === "local") {
-      const sessionId = localStorage.getItem(SESSION_KEY);
-      if (!sessionId) {
-        setUser(null);
-        return;
-      }
-      const found = loadUsers().find((u) => u.id === sessionId);
-      setUser(found ?? null);
-      if (!found) localStorage.removeItem(SESSION_KEY);
+    const found = loadLocalSessionUser();
+    if (found) {
+      setUser(found);
+      return;
     }
+    if (authMode === "local") setUser(null);
   }, [authMode]);
 
   useEffect(() => {
@@ -142,10 +146,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                 data.session.user.user_metadata
               )
             );
+          } else {
+            const localUser = loadLocalSessionUser();
+            if (localUser) setUser(localUser);
           }
           supabase.auth.onAuthStateChange((_event, session) => {
-            setCachedToken(session?.access_token ?? null);
             if (session?.user) {
+              setCachedToken(session.access_token);
               setUser(
                 userFromSupabaseSession(
                   session.user.id,
@@ -154,7 +161,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
                 )
               );
             } else {
-              setUser(null);
+              setCachedToken(null);
+              const localUser = loadLocalSessionUser();
+              setUser(localUser);
             }
           });
         } catch {
