@@ -1,7 +1,11 @@
 "use client";
 
+import { useEffect, useState } from "react";
+import { useSearchParams } from "next/navigation";
 import { useAuth } from "@/lib/auth";
+import { useApp } from "@/lib/store";
 import IntegrationCard from "@/components/IntegrationCard";
+import OAuthIntegrationCard from "@/components/OAuthIntegrationCard";
 
 const PROVIDERS = [
   {
@@ -48,8 +52,47 @@ const PROVIDERS = [
 
 export default function IntegrationsNewPage() {
   const { user } = useAuth();
+  const { showToast } = useApp();
+  const searchParams = useSearchParams();
+  const [message, setMessage] = useState("");
+
+  useEffect(() => {
+    const oauthSuccess = searchParams.get("oauth_success");
+    const error = searchParams.get("error");
+    const errorDetail = searchParams.get("error_detail");
+
+    if (oauthSuccess) {
+      setMessage(`✓ ${oauthSuccess} verbonden!`);
+      showToast(`✓ ${oauthSuccess} succesvol gekoppeld!`);
+      setTimeout(() => setMessage(""), 5000);
+    } else if (error) {
+      const detail = errorDetail ? ` - ${errorDetail}` : "";
+      setMessage(`✗ Fout: ${error}${detail}`);
+      showToast(`✗ OAuth fout: ${error}`);
+      setTimeout(() => setMessage(""), 5000);
+    }
+  }, [searchParams, showToast]);
 
   if (!user) return null;
+
+  const OAUTH_PROVIDERS = [
+    {
+      id: "linkedin",
+      name: "LinkedIn Sales Navigator",
+      description: "OAuth login & CSV export integratie",
+      icon: "🔗",
+      scopes: "r_liteprofile, r_emailaddress",
+      docs: "https://docs.microsoft.com/en-us/linkedin/shared/authentication/authentication",
+    },
+    {
+      id: "hubspot_oauth",
+      name: "HubSpot (OAuth)",
+      description: "Bidirectionele CRM sync zonder token",
+      icon: "🔵",
+      scopes: "crm.objects.companies, crm.objects.contacts",
+      docs: "https://developers.hubspot.com/docs/api/working-with-oauth",
+    },
+  ];
 
   return (
     <>
@@ -59,6 +102,22 @@ export default function IntegrationsNewPage() {
       </div>
 
       <div className="page-scroll">
+        {message && (
+          <div
+            style={{
+              padding: 12,
+              borderRadius: 6,
+              marginBottom: 16,
+              background: message.includes("✓") ? "#dcfce7" : "#fef2f2",
+              color: message.includes("✓") ? "#166534" : "#991b1b",
+              fontSize: 13,
+              fontWeight: 500,
+            }}
+          >
+            {message}
+          </div>
+        )}
+
         <div className="card">
           <div className="card-title">API Providers Configureren</div>
           <div className="card-desc">
@@ -84,6 +143,16 @@ export default function IntegrationsNewPage() {
               <IntegrationCard key={provider.id} provider={provider} />
             )
           )}
+        </div>
+
+        <div className="card">
+          <div className="card-title">OAuth Integraties</div>
+          <div className="card-desc">
+            Veilige verbindingen via OAuth - geen tokens opslaan nodig
+          </div>
+          {OAUTH_PROVIDERS.map((provider) => (
+            <OAuthIntegrationCard key={provider.id} provider={provider} />
+          ))}
         </div>
 
         <div className="card">
