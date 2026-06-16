@@ -46,6 +46,19 @@ function loadLocalSessionUser(): User | null {
   return found ?? null;
 }
 
+function isDemoCredentials(email: string, password: string): boolean {
+  return email.trim().toLowerCase() === "levi@legacy.com" && password === "legacy123";
+}
+
+function applyLocalDemoSession(setUserFn: (u: User) => void): User | null {
+  ensureDemoUser();
+  const found = loadUsers().find((u) => u.email.toLowerCase() === "levi@legacy.com");
+  if (!found) return null;
+  localStorage.setItem(SESSION_KEY, found.id);
+  setUserFn(found);
+  return found;
+}
+
 function ensureDemoUser(): void {
   const users = loadUsers();
   if (!users.find((u) => u.email === "levi@legacy.com")) {
@@ -181,21 +194,43 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const login = useCallback(
     async (email: string, password: string): Promise<string | null> => {
       if (authMode === "supabase") {
+        const normalizedEmail = email.trim().toLowerCase();
         try {
           const supabase = createClient();
+
+          if (isDemoCredentials(normalizedEmail, password)) {
+            try {
+              await fetch("/api/auth/ensure-demo", { method: "POST" });
+            } catch {
+              /* best-effort */
+            }
+          }
+
           const { data, error } = await supabase.auth.signInWithPassword({
-            email,
+            email: normalizedEmail,
             password,
           });
           if (error) {
-            if (email === "levi@legacy.com" && password === "legacy123") {
-              ensureDemoUser();
-              const found = loadUsers().find((u) => u.email === "levi@legacy.com");
-              if (found) {
-                localStorage.setItem(SESSION_KEY, found.id);
-                setUser(found);
+            if (isDemoCredentials(normalizedEmail, password)) {
+              const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
+                email: normalizedEmail,
+                password,
+                options: {
+                  data: { name: "Levi Kempen", company: "Legacy Scale Models" },
+                },
+              });
+              if (!signUpError && signUpData.session?.user) {
+                setCachedToken(signUpData.session.access_token);
+                setUser(
+                  userFromSupabaseSession(
+                    signUpData.session.user.id,
+                    signUpData.session.user.email ?? "",
+                    signUpData.session.user.user_metadata
+                  )
+                );
                 return null;
               }
+              if (applyLocalDemoSession(setUser)) return null;
             }
             return error.message;
           }
@@ -207,6 +242,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           }
           return null;
         } catch (e) {
+          if (isDemoCredentials(email, password) && applyLocalDemoSession(setUser)) return null;
           return e instanceof Error ? e.message : "Login mislukt";
         }
       }
