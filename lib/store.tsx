@@ -13,6 +13,7 @@ import { useAuth, getDataKey } from "./auth";
 import {
   enrichLeadsCloud,
   fetchCloudData,
+  fetchServiceStatus,
   patchCloudLead,
   postCloudLead,
   recalculateCloudScores,
@@ -21,7 +22,6 @@ import {
   saveCloudSnapshot,
   syncHubSpotCloud,
 } from "./data/leads-client";
-import { isCloudEnabled } from "./data/is-cloud";
 import { SEED_LEADS } from "./seed-data";
 import type { Batch, Contact, CreditTransaction, Integrations, Lead, UserData } from "./types";
 import { DEFAULT_AI_COLUMNS, type AiColumnKey } from "./types/automation";
@@ -101,8 +101,19 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [batches, setBatches] = useState<Batch[]>([]);
   const [toast, setToast] = useState<string | null>(null);
   const [storageMode, setStorageMode] = useState<StorageMode>("loading");
-  const cloud = isCloudEnabled();
+  const [cloudAvailable, setCloudAvailable] = useState(false);
   const workspaceId = user?.workspaceId ?? DEFAULT_WORKSPACE_ID;
+
+  const showToast = useCallback((msg: string) => {
+    setToast(msg);
+    setTimeout(() => setToast(null), 2500);
+  }, []);
+
+  useEffect(() => {
+    fetchServiceStatus()
+      .then((s) => setCloudAvailable(Boolean(s.cloud)))
+      .catch(() => setCloudAvailable(false));
+  }, []);
 
   useEffect(() => {
     if (!user) {
@@ -116,7 +127,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
     async function load() {
       setStorageMode("loading");
-      if (cloud) {
+      if (cloudAvailable) {
         try {
           const data = await fetchCloudData(user!.id);
           if (!cancelled) {
@@ -126,7 +137,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
           }
           return;
         } catch {
-          /* fall through to local */
+          if (!cancelled) {
+            showToast("Cloud laden mislukt — controleer Supabase instellingen");
+          }
         }
       }
 
@@ -142,12 +155,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
     return () => {
       cancelled = true;
     };
-  }, [user?.id, cloud]);
-
-  const showToast = useCallback((msg: string) => {
-    setToast(msg);
-    setTimeout(() => setToast(null), 2500);
-  }, []);
+  }, [user?.id, cloudAvailable, showToast]);
 
   const persistLocal = useCallback(
     (newLeads: Lead[], newBatches: Batch[]) => {
