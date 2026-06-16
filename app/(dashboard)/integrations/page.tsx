@@ -46,6 +46,7 @@ export default function IntegrationsPage() {
     supabasePublic: false,
     hubspot: false,
     supabaseAuth: false,
+    missingEnv: [] as string[],
   });
 
   useEffect(() => {
@@ -60,6 +61,7 @@ export default function IntegrationsPage() {
           supabasePublic: s.supabasePublic,
           hubspot: s.hubspot ?? false,
           supabaseAuth: s.supabaseAuth ?? false,
+          missingEnv: s.missingEnv ?? [],
         })
       )
       .catch(() => {});
@@ -113,6 +115,12 @@ export default function IntegrationsPage() {
             <p className="card-desc" style={{ marginTop: 8, color: "#166534" }}>
               Actieve AI provider:{" "}
               {serviceStatus.aiProvider === "openai" ? "OpenAI" : "Claude (Anthropic)"}
+            </p>
+          )}
+          {!serviceStatus.cloud && serviceStatus.missingEnv.length > 0 && (
+            <p className="card-desc" style={{ marginTop: 8, color: "#92400e" }}>
+              Cloud uitgeschakeld — ontbrekende Vercel env vars:{" "}
+              {serviceStatus.missingEnv.join(", ")}. Voeg ze toe en redeploy.
             </p>
           )}
           {!serviceStatus.hubspot && (

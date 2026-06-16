@@ -126,6 +126,9 @@ export async function fetchServiceStatus(): Promise<{
   anthropic: boolean;
   aiProvider: "openai" | "anthropic" | null;
   supabasePublic: boolean;
+  supabaseAnonKey?: boolean;
+  supabaseServerKey?: boolean;
+  missingEnv?: string[];
   hubspot?: boolean;
   supabaseAuth?: boolean;
 }> {
@@ -138,6 +141,7 @@ export async function fetchServiceStatus(): Promise<{
       anthropic: false,
       aiProvider: null,
       supabasePublic: false,
+      missingEnv: ["NEXT_PUBLIC_SUPABASE_URL"],
     };
   }
   return res.json();
