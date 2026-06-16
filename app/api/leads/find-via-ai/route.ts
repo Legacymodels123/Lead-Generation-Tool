@@ -1,18 +1,12 @@
 import { createClient } from "@supabase/supabase-js";
+export const dynamic = "force-dynamic";
 import { getAiConfig } from "@/lib/automation/provider";
 import { callOpenAI } from "@/lib/automation/openai";
 import { LEGACY_SCALE_MODELS_ICP } from "@/lib/icp/legacy-scale-models";
 import type { Lead } from "@/lib/types";
 import { generateId } from "@/lib/utils";
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
-if (!supabaseUrl || !supabaseServiceKey) {
-  throw new Error("Missing Supabase env vars");
-}
-
-const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
 interface FindLeadsRequest {
   workspaceId: string;
@@ -137,6 +131,18 @@ Now generate the leads:`;
 }
 
 export async function POST(request: Request) {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+  if (!supabaseUrl || !supabaseServiceKey) {
+    return Response.json(
+      { error: "Supabase not configured" },
+      { status: 500 }
+    );
+  }
+
+  const supabase = createClient(supabaseUrl, supabaseServiceKey);
+
   try {
     const body = (await request.json()) as FindLeadsRequest;
     const {

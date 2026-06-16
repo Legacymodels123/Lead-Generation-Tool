@@ -69,29 +69,23 @@ export default function LeadsPageContent() {
 
   const stats = useMemo(() => {
     const total = leads.length;
-    const nieuw = leads.filter((p) => p.status === "nieuw").length;
-    const verstuurd = leads.filter((p) => p.status === "verstuurd").length;
-    const opvolgen = leads.filter((p) => p.status === "opvolgen").length;
-    const gewonnen = leads.filter((p) => p.status === "gewonnen").length;
-    const verloren = leads.filter((p) => p.status === "verloren").length;
-    const bekeken = leads.filter((p) => p.status === "bekeken").length;
+    const qualified = leads.filter((p) => p.status === "qualified").length;
+    const notQualified = leads.filter((p) => p.status === "not_qualified").length;
     const newBatch = leads.filter((p) => p.isNew).length;
-    const conv = total ? Math.round((gewonnen / total) * 100) : 0;
-    const maxFunnel = Math.max(nieuw + 3, verstuurd + 2, opvolgen + 1, gewonnen, 1);
+    const conv = total ? Math.round((qualified / total) * 100) : 0;
+    const maxFunnel = Math.max(notQualified + 1, qualified + 1, 1);
     const funnelH = (n: number) => Math.max(8, Math.round((n / maxFunnel) * 36));
     const latestBatch = leads.find((p) => p.isNew)?.batch ?? leads[0]?.batch;
     return {
       total,
-      nieuw,
-      verstuurd,
-      opvolgen,
-      gewonnen,
-      verloren,
-      bekeken,
+      qualified,
+      notQualified,
       newBatch,
       conv,
       funnelH,
       latestBatch,
+      nieuw: notQualified,
+      opvolgen: qualified,
     };
   }, [leads]);
 
@@ -155,12 +149,8 @@ export default function LeadsPageContent() {
   }
 
   const funnelStages = [
-    { label: "Nieuw", n: stats.nieuw, cls: "s1" },
-    { label: "Bekeken", n: stats.bekeken, cls: "s2" },
-    { label: "Verstuurd", n: stats.verstuurd, cls: "s3" },
-    { label: "Opvolgen", n: stats.opvolgen, cls: "s4" },
-    { label: "Gewonnen", n: stats.gewonnen, cls: "s4" },
-    { label: "Verloren", n: stats.verloren, cls: "s5" },
+    { label: "Niet gekwalificeerd", n: stats.notQualified, cls: "s-not_qualified" },
+    { label: "Gekwalificeerd", n: stats.qualified, cls: "s-qualified" },
   ];
 
   const storageLabel =
@@ -245,20 +235,20 @@ export default function LeadsPageContent() {
             <div className="stat-delta">Account + 2 DMU contacten</div>
           </div>
           <div className="stat-card">
-            <div className="stat-label">Nieuw</div>
-            <div className="stat-value red">{stats.nieuw}</div>
-            <div className="stat-delta">Nog te beoordelen</div>
+            <div className="stat-label">Gekwalificeerd</div>
+            <div className="stat-value green">{stats.qualified}</div>
+            <div className="stat-delta">Klaar voor outreach</div>
           </div>
           <div className="stat-card">
-            <div className="stat-label">Op te volgen</div>
-            <div className="stat-value orange">{stats.opvolgen}</div>
-            <div className="stat-delta">Actie vereist</div>
+            <div className="stat-label">Niet gekwalificeerd</div>
+            <div className="stat-value red">{stats.notQualified}</div>
+            <div className="stat-delta">Geen match met ICP</div>
           </div>
           <div className="stat-card">
-            <div className="stat-label">Conversie</div>
-            <div className="stat-value green">{stats.conv}%</div>
+            <div className="stat-label">Kwalificatie %</div>
+            <div className="stat-value orange">{stats.conv}%</div>
             <div className="stat-delta">
-              {stats.gewonnen} van {stats.total} gewonnen
+              {stats.qualified} van {stats.total} gekwalificeerd
             </div>
           </div>
           <div className="funnel-card">

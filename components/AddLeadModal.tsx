@@ -35,7 +35,7 @@ export default function AddLeadModal({ onClose }: Props) {
       fitReason: "",
       website: "",
       linkedinCompanyUrl: "",
-      status: "nieuw",
+      status: "not_qualified",
       notes: "",
       linkedinUrl: form.linkedinUrl || "https://linkedin.com",
       message:

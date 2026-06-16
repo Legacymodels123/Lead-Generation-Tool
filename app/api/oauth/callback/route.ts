@@ -1,15 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
+export const dynamic = "force-dynamic";
 import { createClient } from "@supabase/supabase-js";
 import type { OAuthToken } from "@/lib/oauth/types";
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
-if (!supabaseUrl || !supabaseServiceKey) {
-  throw new Error("Missing Supabase env vars");
-}
-
-const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
 interface StatePayload {
   provider: string;
@@ -97,6 +91,14 @@ async function exchangeCodeForToken(
 }
 
 export async function GET(request: NextRequest) {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+  if (!supabaseUrl || !supabaseServiceKey) {
+    return NextResponse.redirect(new URL("/integrations-new?error=supabase_not_configured", request.url));
+  }
+
+  const supabase = createClient(supabaseUrl, supabaseServiceKey);
   const searchParams = request.nextUrl.searchParams;
   const code = searchParams.get("code");
   const state = searchParams.get("state");

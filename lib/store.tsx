@@ -329,7 +329,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       contactName: "",
       contactTitle: "",
       linkedinUrl: "",
-      status: "nieuw",
+      status: "not_qualified",
       batch,
       isNew: true,
       notes: "",

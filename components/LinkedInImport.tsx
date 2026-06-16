@@ -80,7 +80,7 @@ export default function LinkedInImport({ onClose }: Props) {
         contactName: lead.contactName!,
         contactTitle: lead.contactTitle ?? "",
         linkedinUrl: lead.linkedinUrl ?? "",
-        status: lead.status ?? "nieuw",
+        status: lead.status ?? "not_qualified",
         notes: lead.notes ?? "Geïmporteerd via LinkedIn Sales Navigator CSV",
         message: lead.message ?? "",
       });

@@ -7,12 +7,8 @@ import type { LeadStatus } from "@/lib/types";
 import { scoreColor } from "@/lib/utils";
 
 const COLUMNS: { status: LeadStatus; label: string; color: string }[] = [
-  { status: "nieuw", label: "Nieuw", color: "#3b82f6" },
-  { status: "bekeken", label: "Bekeken", color: "#a855f7" },
-  { status: "verstuurd", label: "Verstuurd", color: "#f97316" },
-  { status: "opvolgen", label: "Opvolgen", color: "#22c55e" },
-  { status: "gewonnen", label: "Gewonnen", color: "#16a34a" },
-  { status: "verloren", label: "Verloren", color: "#E30609" },
+  { status: "not_qualified", label: "Niet gekwalificeerd", color: "#ef4444" },
+  { status: "qualified", label: "Gekwalificeerd", color: "#22c55e" },
 ];
 
 export default function PipelinePage() {
@@ -22,12 +18,8 @@ export default function PipelinePage() {
 
   const grouped = useMemo(() => {
     const map: Record<LeadStatus, typeof leads> = {
-      nieuw: [],
-      bekeken: [],
-      verstuurd: [],
-      opvolgen: [],
-      gewonnen: [],
-      verloren: [],
+      qualified: [],
+      not_qualified: [],
     };
     leads.forEach((l) => map[l.status].push(l));
     return map;

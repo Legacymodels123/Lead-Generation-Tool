@@ -1,25 +1,28 @@
 import { createClient } from "@supabase/supabase-js";
 import type { WorkspaceConfig } from "@/lib/types";
 
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-if (!supabaseUrl || !supabaseServiceKey) {
-  throw new Error("Missing Supabase env vars");
-}
-
-const supabase = createClient(supabaseUrl, supabaseServiceKey);
+export const dynamic = "force-dynamic";
 
 // GET /api/workspaces/[id]/config
 export async function GET(
   request: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
+  const { id } = await params;
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+  if (!supabaseUrl || !supabaseServiceKey) {
+    return Response.json({ error: "Supabase not configured" }, { status: 500 });
+  }
+
+  const supabase = createClient(supabaseUrl, supabaseServiceKey);
+
   try {
     const { data, error } = await supabase
       .from("workspaces")
       .select("config")
-      .eq("id", params.id)
+      .eq("id", id)
       .single();
 
     if (error) {
@@ -42,8 +45,18 @@ export async function GET(
 // POST /api/workspaces/[id]/config
 export async function POST(
   request: Request,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
+  const { id } = await params;
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+  if (!supabaseUrl || !supabaseServiceKey) {
+    return Response.json({ error: "Supabase not configured" }, { status: 500 });
+  }
+
+  const supabase = createClient(supabaseUrl, supabaseServiceKey);
+
   try {
     const body = (await request.json()) as WorkspaceConfig;
 
@@ -74,7 +87,7 @@ export async function POST(
     const { data: existing } = await supabase
       .from("workspaces")
       .select("config")
-      .eq("id", params.id)
+      .eq("id", id)
       .single();
 
     const currentConfig = existing?.config || {};
@@ -90,7 +103,7 @@ export async function POST(
     const { data, error } = await supabase
       .from("workspaces")
       .update({ config: mergedConfig })
-      .eq("id", params.id)
+      .eq("id", id)
       .select("config")
       .single();
 

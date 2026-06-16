@@ -116,6 +116,7 @@ export interface WorkspaceConfig {
     hubspot?: string;
     lusha?: string;
   };
+  oauth?: Record<string, any>;
   columns?: ColumnConfig[];
   leadStatuses?: LeadStatus[];
 }
