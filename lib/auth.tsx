@@ -19,6 +19,16 @@ export function getDataKey(userId: string): string {
   return `lgt-data-${userId}`;
 }
 
+// Check if Supabase is configured
+function isSupabaseConfigured(): boolean {
+  return Boolean(
+    typeof window !== "undefined" &&
+    process.env.NEXT_PUBLIC_SUPABASE_URL &&
+    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
+  );
+}
+
+// localStorage helpers
 function loadUsers(): User[] {
   if (typeof window === "undefined") return [];
   try {
@@ -73,17 +83,27 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   // Initialize on mount
   useEffect(() => {
-    const sessionId = loadSession();
-    if (sessionId) {
-      const users = loadUsers();
-      const found = users.find((u) => u.id === sessionId);
-      if (found) {
-        setUser(found);
-      } else {
-        clearSession();
+    async function init() {
+      try {
+        // Always try localStorage first (it's our reliable fallback)
+        const sessionId = loadSession();
+        if (sessionId) {
+          const users = loadUsers();
+          const found = users.find((u) => u.id === sessionId);
+          if (found) {
+            setUser(found);
+            setLoading(false);
+            return;
+          }
+        }
+      } catch (err) {
+        console.error("Auth init error:", err);
       }
+
+      setLoading(false);
     }
-    setLoading(false);
+
+    init();
   }, []);
 
   const login = useCallback(
@@ -115,16 +135,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       try {
         const users = loadUsers();
 
-        // Check if email already exists
         if (users.find((u) => u.email.toLowerCase() === email.toLowerCase())) {
           return "Dit e-mailadres is al in gebruik";
         }
 
-        // Create new user
         const newUser: User = {
           id: generateId(),
           email: email.toLowerCase(),
-          password, // In real app, this should be hashed
+          password,
           name,
           company,
           credits: STARTING_CREDITS,
