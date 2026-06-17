@@ -1,6 +1,8 @@
 "use client";
 
 import { useState, useMemo } from "react";
+import { useRouter } from "next/navigation";
+import { useAuth } from "@/lib/auth";
 import { useApp } from "@/lib/store";
 import type { Lead } from "@/lib/types";
 
@@ -18,9 +20,17 @@ const COLUMNS = [
 ];
 
 export default function CompaniesPage() {
+  const { user, loading } = useAuth();
+  const router = useRouter();
   const { leads } = useApp();
   const [sortBy, setSortBy] = useState("company");
   const [filterStatus, setFilterStatus] = useState<"all" | "qualified" | "not_qualified">("all");
+
+  if (loading) return <div style={{ padding: "20px" }}>Loading...</div>;
+  if (!user) {
+    router.push("/login");
+    return null;
+  }
 
   const filtered = useMemo(() => {
     let result = leads;
@@ -121,7 +131,6 @@ export default function CompaniesPage() {
                 key={lead.id}
                 style={{
                   borderBottom: "1px solid #e5e7eb",
-                  hover: { background: "#f9fafb" },
                 }}
                 onMouseEnter={(e) => {
                   (e.currentTarget as HTMLTableRowElement).style.background = "#f9fafb";

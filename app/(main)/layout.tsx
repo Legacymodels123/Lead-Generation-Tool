@@ -1,6 +1,8 @@
 "use client";
 
-import { useState, useEffect } from "react";
+export const dynamic = "force-dynamic";
+
+import { useState, useEffect, Suspense } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useAuth } from "@/lib/auth";
@@ -15,7 +17,7 @@ const MAIN_NAV = [
   { href: "/settings", icon: "⚙️", label: "Settings" },
 ];
 
-export default function MainLayout({ children }: { children: React.ReactNode }) {
+function MainLayoutContent({ children }: { children: React.ReactNode }) {
   const pathname = usePathname();
   const { user, logout } = useAuth();
   const { leads } = useApp();
@@ -23,7 +25,7 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
   const [searchQuery, setSearchQuery] = useState("");
 
   if (!user) {
-    return <>{children}</>;
+    return null;
   }
 
   const qualifiedCount = leads.filter((l) => l.status === "qualified").length;
@@ -254,5 +256,13 @@ export default function MainLayout({ children }: { children: React.ReactNode }) 
         {children}
       </main>
     </div>
+  );
+}
+
+export default function MainLayout({ children }: { children: React.ReactNode }) {
+  return (
+    <Suspense fallback={<div>Loading...</div>}>
+      <MainLayoutContent>{children}</MainLayoutContent>
+    </Suspense>
   );
 }

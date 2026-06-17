@@ -1,13 +1,23 @@
 "use client";
 
 import { useState, useMemo } from "react";
+import { useRouter } from "next/navigation";
+import { useAuth } from "@/lib/auth";
 import { useApp } from "@/lib/store";
 import Link from "next/link";
 
 export default function QualifiedPage() {
+  const { user, loading } = useAuth();
+  const router = useRouter();
   const { leads, updateLead, showToast } = useApp();
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [running, setRunning] = useState(false);
+
+  if (loading) return <div style={{ padding: "20px" }}>Loading...</div>;
+  if (!user) {
+    router.push("/login");
+    return null;
+  }
 
   const qualified = useMemo(() => {
     return leads.filter((l) => l.status === "qualified");
