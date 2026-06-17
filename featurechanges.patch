@@ -1,0 +1,4101 @@
+From 8410b6093400686e75267356144ffb369f2b5293 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Tue, 16 Jun 2026 11:48:10 +0000
+Subject: [PATCH 1/8] Phase 1 & 2: Database foundation + API key management
+
+- Add workspace config table (JSONB) for storing API keys, columns, settings
+- Migrate lead statuses: qualified/not_qualified + AI qualification score
+- Create workspace config API endpoints (GET/POST)
+- Add ApiKeysCard component for managing API keys in settings
+- Create workspace config helpers (fetch, update, cache management)
+- Update lead types with new source field and aiQualificationScore
+- Add DEFAULT_COLUMNS configuration for future column management
+- Update status labels throughout components (LeadsGrid, LeadDetailPanel)
+- Add status mapping for migration from legacy 6-status pipeline
+
+https://claude.ai/code/session_017bduQGW5noeKxit6G9d8eo
+---
+ app/(dashboard)/leads/LeadsPageContent.tsx |   4 +-
+ app/(dashboard)/settings/page.tsx          |   3 +
+ app/api/workspaces/[id]/config/route.ts    | 108 +++++++++++
+ components/ApiKeysCard.tsx                 | 198 +++++++++++++++++++++
+ components/LeadDetailPanel.tsx             |   5 +-
+ components/LeadsGrid.tsx                   |  12 +-
+ lib/types.ts                               |  59 +++++-
+ lib/utils.ts                               |  17 +-
+ lib/workspace/config.ts                    |  77 ++++++++
+ supabase/schema.sql                        |  23 +++
+ 10 files changed, 471 insertions(+), 35 deletions(-)
+ create mode 100644 app/api/workspaces/[id]/config/route.ts
+ create mode 100644 components/ApiKeysCard.tsx
+ create mode 100644 lib/workspace/config.ts
+
+diff --git a/app/(dashboard)/leads/LeadsPageContent.tsx b/app/(dashboard)/leads/LeadsPageContent.tsx
+index b9f130c..739671e 100644
+--- a/app/(dashboard)/leads/LeadsPageContent.tsx
++++ b/app/(dashboard)/leads/LeadsPageContent.tsx
+@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
+ import { useSearchParams } from "next/navigation";
+ import { useApp } from "@/lib/store";
+ import type { LeadStatus } from "@/lib/types";
+-import { STATUS_LABELS } from "@/lib/utils";
++import { STATUS_LABELS } from "@/lib/types";
+ import LeadDetailPanel from "@/components/LeadDetailPanel";
+ import AddLeadModal from "@/components/AddLeadModal";
+ import LinkedInImport from "@/components/LinkedInImport";
+@@ -291,7 +291,7 @@ export default function LeadsPageContent() {
+ 
+         <div className="filter-bar">
+           {(
+-            ["alle", "nieuw", "bekeken", "verstuurd", "opvolgen", "gewonnen", "verloren"] as Filter[]
++            ["alle", "qualified", "not_qualified"] as Filter[]
+           ).map((s) => (
+             <button
+               key={s}
+diff --git a/app/(dashboard)/settings/page.tsx b/app/(dashboard)/settings/page.tsx
+index 6724705..a76ee1a 100644
+--- a/app/(dashboard)/settings/page.tsx
++++ b/app/(dashboard)/settings/page.tsx
+@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
+ import { useAuth } from "@/lib/auth";
+ import { useApp } from "@/lib/store";
+ import { getIcpForWorkspace, getWorkspace } from "@/lib/workspace/context";
++import ApiKeysCard from "@/components/ApiKeysCard";
+ 
+ const PACKAGES = [
+   { credits: 50, price: "€49" },
+@@ -149,6 +150,8 @@ export default function SettingsPage() {
+           </div>
+         </div>
+ 
++        <ApiKeysCard />
++
+         <div className="card">
+           <div className="setting-row">
+             <div className="setting-info">
+diff --git a/app/api/workspaces/[id]/config/route.ts b/app/api/workspaces/[id]/config/route.ts
+new file mode 100644
+index 0000000..38e7679
+--- /dev/null
++++ b/app/api/workspaces/[id]/config/route.ts
+@@ -0,0 +1,108 @@
++import { createClient } from "@supabase/supabase-js";
++import type { WorkspaceConfig } from "@/lib/types";
++
++const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
++const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
++
++if (!supabaseUrl || !supabaseServiceKey) {
++  throw new Error("Missing Supabase env vars");
++}
++
++const supabase = createClient(supabaseUrl, supabaseServiceKey);
++
++// GET /api/workspaces/[id]/config
++export async function GET(
++  request: Request,
++  { params }: { params: { id: string } }
++) {
++  try {
++    const { data, error } = await supabase
++      .from("workspaces")
++      .select("config")
++      .eq("id", params.id)
++      .single();
++
++    if (error) {
++      return Response.json({ error: error.message }, { status: 400 });
++    }
++
++    if (!data) {
++      return Response.json({ error: "Workspace not found" }, { status: 404 });
++    }
++
++    return Response.json(data.config || {});
++  } catch (err) {
++    return Response.json(
++      { error: err instanceof Error ? err.message : "Unknown error" },
++      { status: 500 }
++    );
++  }
++}
++
++// POST /api/workspaces/[id]/config
++export async function POST(
++  request: Request,
++  { params }: { params: { id: string } }
++) {
++  try {
++    const body = (await request.json()) as WorkspaceConfig;
++
++    // Validate config structure
++    if (body.apiKeys) {
++      const { openai, hubspot, lusha } = body.apiKeys;
++      if (openai && typeof openai !== "string") {
++        return Response.json(
++          { error: "Invalid OpenAI key format" },
++          { status: 400 }
++        );
++      }
++      if (hubspot && typeof hubspot !== "string") {
++        return Response.json(
++          { error: "Invalid HubSpot token format" },
++          { status: 400 }
++        );
++      }
++      if (lusha && typeof lusha !== "string") {
++        return Response.json(
++          { error: "Invalid Lusha key format" },
++          { status: 400 }
++        );
++      }
++    }
++
++    // Merge with existing config (preserve fields not in request)
++    const { data: existing } = await supabase
++      .from("workspaces")
++      .select("config")
++      .eq("id", params.id)
++      .single();
++
++    const currentConfig = existing?.config || {};
++    const mergedConfig = {
++      ...currentConfig,
++      ...body,
++      apiKeys: {
++        ...(currentConfig.apiKeys || {}),
++        ...(body.apiKeys || {}),
++      },
++    };
++
++    const { data, error } = await supabase
++      .from("workspaces")
++      .update({ config: mergedConfig })
++      .eq("id", params.id)
++      .select("config")
++      .single();
++
++    if (error) {
++      return Response.json({ error: error.message }, { status: 400 });
++    }
++
++    return Response.json(data?.config || {});
++  } catch (err) {
++    return Response.json(
++      { error: err instanceof Error ? err.message : "Unknown error" },
++      { status: 500 }
++    );
++  }
++}
+diff --git a/components/ApiKeysCard.tsx b/components/ApiKeysCard.tsx
+new file mode 100644
+index 0000000..b2df3be
+--- /dev/null
++++ b/components/ApiKeysCard.tsx
+@@ -0,0 +1,198 @@
++"use client";
++
++import { useState, useEffect } from "react";
++import { useApp } from "@/lib/store";
++import {
++  fetchWorkspaceConfig,
++  updateWorkspaceConfig,
++  clearConfigCache,
++} from "@/lib/workspace/config";
++import type { WorkspaceConfig } from "@/lib/types";
++
++export default function ApiKeysCard() {
++  const { workspaceId } = useApp();
++  const [config, setConfig] = useState<WorkspaceConfig>({});
++  const [openai, setOpenai] = useState("");
++  const [hubspot, setHubspot] = useState("");
++  const [lusha, setLusha] = useState("");
++  const [saving, setSaving] = useState(false);
++  const [message, setMessage] = useState("");
++
++  useEffect(() => {
++    loadConfig();
++  }, [workspaceId]);
++
++  async function loadConfig() {
++    const cfg = await fetchWorkspaceConfig(workspaceId);
++    setConfig(cfg);
++    setOpenai(cfg.apiKeys?.openai ? "••••" + cfg.apiKeys.openai.slice(-4) : "");
++    setHubspot(cfg.apiKeys?.hubspot ? "••••" + cfg.apiKeys.hubspot.slice(-4) : "");
++    setLusha(cfg.apiKeys?.lusha ? "••••" + cfg.apiKeys.lusha.slice(-4) : "");
++  }
++
++  async function handleSave(e: React.FormEvent) {
++    e.preventDefault();
++    setSaving(true);
++    setMessage("");
++
++    try {
++      // Only send non-masked values (new entries or changed)
++      const updates: WorkspaceConfig = {
++        apiKeys: {},
++      };
++
++      if (openai && !openai.startsWith("••••")) {
++        updates.apiKeys!.openai = openai;
++      }
++      if (hubspot && !hubspot.startsWith("••••")) {
++        updates.apiKeys!.hubspot = hubspot;
++      }
++      if (lusha && !lusha.startsWith("••••")) {
++        updates.apiKeys!.lusha = lusha;
++      }
++
++      if (
++        Object.keys(updates.apiKeys!).length === 0 &&
++        !Object.keys(updates).some((k) => k !== "apiKeys")
++      ) {
++        setMessage("Geen wijzigingen opgeslagen");
++        setSaving(false);
++        return;
++      }
++
++      await updateWorkspaceConfig(workspaceId, updates);
++      clearConfigCache(workspaceId);
++
++      // Reload to show masked values
++      await loadConfig();
++      setMessage("✓ API sleutels opgeslagen");
++
++      setTimeout(() => setMessage(""), 3000);
++    } catch (err) {
++      setMessage(
++        "✗ Fout bij opslaan: " + (err instanceof Error ? err.message : "Unknown")
++      );
++    } finally {
++      setSaving(false);
++    }
++  }
++
++  function handleClear(field: "openai" | "hubspot" | "lusha") {
++    if (field === "openai") setOpenai("");
++    if (field === "hubspot") setHubspot("");
++    if (field === "lusha") setLusha("");
++  }
++
++  return (
++    <div className="card">
++      <div className="card-title">API Sleutels & Integraties</div>
++      <div className="card-desc">
++        Beheer API sleutels voor AI, HubSpot en verrijkingsdiensten
++      </div>
++
++      <form onSubmit={handleSave}>
++        <div className="form-group">
++          <label className="form-label">OpenAI API Key</label>
++          <div style={{ display: "flex", gap: 8 }}>
++            <input
++              className="form-input"
++              type="password"
++              placeholder="sk-..."
++              value={openai}
++              onChange={(e) => setOpenai(e.target.value)}
++              style={{ flex: 1 }}
++            />
++            {openai && (
++              <button
++                type="button"
++                className="btn-secondary"
++                onClick={() => handleClear("openai")}
++                style={{ padding: "8px 16px" }}
++              >
++                Verwijder
++              </button>
++            )}
++          </div>
++          <p style={{ fontSize: 12, color: "#999", marginTop: 4 }}>
++            Voor GPT-4o-mini AI verrijking
++          </p>
++        </div>
++
++        <div className="form-group">
++          <label className="form-label">HubSpot Access Token</label>
++          <div style={{ display: "flex", gap: 8 }}>
++            <input
++              className="form-input"
++              type="password"
++              placeholder="pat-..."
++              value={hubspot}
++              onChange={(e) => setHubspot(e.target.value)}
++              style={{ flex: 1 }}
++            />
++            {hubspot && (
++              <button
++                type="button"
++                className="btn-secondary"
++                onClick={() => handleClear("hubspot")}
++                style={{ padding: "8px 16px" }}
++              >
++                Verwijder
++              </button>
++            )}
++          </div>
++          <p style={{ fontSize: 12, color: "#999", marginTop: 4 }}>
++            Private App token voor CRM sync
++          </p>
++        </div>
++
++        <div className="form-group">
++          <label className="form-label">Lusha API Key (optioneel)</label>
++          <div style={{ display: "flex", gap: 8 }}>
++            <input
++              className="form-input"
++              type="password"
++              placeholder="lu_..."
++              value={lusha}
++              onChange={(e) => setLusha(e.target.value)}
++              style={{ flex: 1 }}
++            />
++            {lusha && (
++              <button
++                type="button"
++                className="btn-secondary"
++                onClick={() => handleClear("lusha")}
++                style={{ padding: "8px 16px" }}
++              >
++                Verwijder
++              </button>
++            )}
++          </div>
++          <p style={{ fontSize: 12, color: "#999", marginTop: 4 }}>
++            Voor contactgegevens verrijking
++          </p>
++        </div>
++
++        <button
++          type="submit"
++          className="btn-primary"
++          disabled={saving}
++          style={{ marginTop: 16 }}
++        >
++          {saving ? "Opslaan..." : "Sleutels opslaan"}
++        </button>
++
++        {message && (
++          <p
++            style={{
++              marginTop: 12,
++              color: message.includes("✓") ? "#16a34a" : "#dc2626",
++              fontSize: 13,
++            }}
++          >
++            {message}
++          </p>
++        )}
++      </form>
++    </div>
++  );
++}
+diff --git a/components/LeadDetailPanel.tsx b/components/LeadDetailPanel.tsx
+index 74f0701..8a4928e 100644
+--- a/components/LeadDetailPanel.tsx
++++ b/components/LeadDetailPanel.tsx
+@@ -3,7 +3,8 @@
+ import { useState } from "react";
+ import type { Lead, LeadStatus } from "@/lib/types";
+ import { useApp } from "@/lib/store";
+-import { FLAGS, STATUS_CLASS, STATUS_LABELS, scoreColor } from "@/lib/utils";
++import { FLAGS, STATUS_CLASS, scoreColor } from "@/lib/utils";
++import { STATUS_LABELS } from "@/lib/types";
+ 
+ interface Props {
+   lead: Lead;
+@@ -105,7 +106,7 @@ export default function LeadDetailPanel({ lead, onClose }: Props) {
+         <div className="panel-section">
+           <div className="panel-section-title">Status wijzigen</div>
+           <div className="status-buttons">
+-            {(["nieuw", "bekeken", "verstuurd", "opvolgen", "gewonnen", "verloren"] as LeadStatus[]).map(
++            {(["qualified", "not_qualified"] as LeadStatus[]).map(
+               (s) => (
+                 <button
+                   key={s}
+diff --git a/components/LeadsGrid.tsx b/components/LeadsGrid.tsx
+index e7d9c98..674d211 100644
+--- a/components/LeadsGrid.tsx
++++ b/components/LeadsGrid.tsx
+@@ -4,7 +4,8 @@ import { Fragment } from "react";
+ import type { Contact, Lead, LeadStatus } from "@/lib/types";
+ import type { AiStatus } from "@/lib/types";
+ import { getDmuRoleLabel } from "@/lib/dmu/roles";
+-import { FLAGS, STATUS_LABELS, scoreColor } from "@/lib/utils";
++import { FLAGS, scoreColor } from "@/lib/utils";
++import { STATUS_LABELS } from "@/lib/types";
+ 
+ function AiCellContent({ status, value }: { status?: AiStatus; value?: string }) {
+   if (status === "running") {
+@@ -34,14 +35,7 @@ function confidenceBadge(confidence?: Contact["emailConfidence"]) {
+   return <span className={`conf-badge ${cls}`}>{confidence}</span>;
+ }
+ 
+-const STATUSES: LeadStatus[] = [
+-  "nieuw",
+-  "bekeken",
+-  "verstuurd",
+-  "opvolgen",
+-  "gewonnen",
+-  "verloren",
+-];
++const STATUSES: LeadStatus[] = ["qualified", "not_qualified"];
+ 
+ interface Props {
+   leads: Lead[];
+diff --git a/lib/types.ts b/lib/types.ts
+index 7e260a3..1c5ec83 100644
+--- a/lib/types.ts
++++ b/lib/types.ts
+@@ -1,10 +1,6 @@
+-export type LeadStatus =
+-  | "nieuw"
+-  | "bekeken"
+-  | "verstuurd"
+-  | "opvolgen"
+-  | "gewonnen"
+-  | "verloren";
++export type LeadStatus = "qualified" | "not_qualified";
++
++export type LeadSource = "manual" | "linkedin_import" | "hubspot_sync" | "ai_generated" | "batch_nightly";
+ 
+ export type AiStatus = "idle" | "running" | "done" | "error";
+ 
+@@ -58,6 +54,8 @@ export interface Lead {
+   aiSummary?: string;
+   aiNextStep?: string;
+   aiStatus?: AiStatus;
++  source?: LeadSource;
++  aiQualificationScore?: number;
+   contacts: Contact[];
+   expanded?: boolean;
+ }
+@@ -104,19 +102,66 @@ export interface UserData {
+   batches: Batch[];
+ }
+ 
++export interface ColumnConfig {
++  key: string;
++  label: string;
++  visible: boolean;
++  order: number;
++  readonly?: boolean;
++}
++
++export interface WorkspaceConfig {
++  apiKeys?: {
++    openai?: string;
++    hubspot?: string;
++    lusha?: string;
++  };
++  columns?: ColumnConfig[];
++  leadStatuses?: LeadStatus[];
++}
++
+ export interface Workspace {
+   id: string;
+   slug: string;
+   name: string;
+   icpConfigId: string;
++  config?: WorkspaceConfig;
+ }
+ 
++export const STATUS_LABELS: Record<LeadStatus, string> = {
++  qualified: "✓ Gekwalificeerd",
++  not_qualified: "✗ Niet gekwalificeerd",
++};
++
++export const LEGACY_STATUS_MAPPING: Record<string, LeadStatus> = {
++  nieuw: "not_qualified",
++  bekeken: "not_qualified",
++  verstuurd: "qualified",
++  opvolgen: "qualified",
++  gewonnen: "qualified",
++  verloren: "not_qualified",
++};
++
++export const DEFAULT_COLUMNS: ColumnConfig[] = [
++  { key: "company", label: "Bedrijf", visible: true, order: 0, readonly: true },
++  { key: "market", label: "Markt", visible: true, order: 1 },
++  { key: "sector", label: "Sector", visible: true, order: 2 },
++  { key: "fitReason", label: "Waarom fit", visible: true, order: 3 },
++  { key: "employees", label: "Medewerkers", visible: true, order: 4 },
++  { key: "website", label: "Website", visible: true, order: 5 },
++  { key: "score", label: "Score", visible: true, order: 6 },
++  { key: "aiQualificationScore", label: "AI Score", visible: true, order: 7 },
++  { key: "status", label: "Status", visible: true, order: 8, readonly: true },
++  { key: "aiSummary", label: "AI Samenvatting", visible: false, order: 9 },
++];
++
+ export const CREDIT_COSTS = {
+   addLead: 5,
+   nightlyBatch: 10,
+   copyMessage: 0,
+   enrich: 3,
+   hubspotSync: 2,
++  findLeadsViaAi: 15,
+ } as const;
+ 
+ export const STARTING_CREDITS = 100;
+diff --git a/lib/utils.ts b/lib/utils.ts
+index f3a5b66..e5990db 100644
+--- a/lib/utils.ts
++++ b/lib/utils.ts
+@@ -9,22 +9,9 @@ export const FLAGS: Record<string, string> = {
+   Portugal: "🇵🇹",
+ };
+ 
+-export const STATUS_LABELS: Record<string, string> = {
+-  nieuw: "Nieuw",
+-  bekeken: "Bekeken",
+-  verstuurd: "Verstuurd",
+-  opvolgen: "Opvolgen",
+-  gewonnen: "Gewonnen",
+-  verloren: "Verloren",
+-};
+-
+ export const STATUS_CLASS: Record<string, string> = {
+-  nieuw: "s-nieuw",
+-  bekeken: "s-bekeken",
+-  verstuurd: "s-verstuurd",
+-  opvolgen: "s-opvolgen",
+-  gewonnen: "s-gewonnen",
+-  verloren: "s-verloren",
++  qualified: "s-qualified",
++  not_qualified: "s-not_qualified",
+ };
+ 
+ export function scoreColor(score: number): string {
+diff --git a/lib/workspace/config.ts b/lib/workspace/config.ts
+new file mode 100644
+index 0000000..f2a197f
+--- /dev/null
++++ b/lib/workspace/config.ts
+@@ -0,0 +1,77 @@
++import type { WorkspaceConfig } from "@/lib/types";
++
++const CONFIG_CACHE: Map<string, WorkspaceConfig> = new Map();
++
++export async function fetchWorkspaceConfig(
++  workspaceId: string
++): Promise<WorkspaceConfig> {
++  // Check cache first
++  if (CONFIG_CACHE.has(workspaceId)) {
++    return CONFIG_CACHE.get(workspaceId) || {};
++  }
++
++  try {
++    const response = await fetch(
++      `/api/workspaces/${workspaceId}/config`,
++      { cache: "no-store" }
++    );
++    if (!response.ok) {
++      console.warn(`Failed to fetch workspace config: ${response.statusText}`);
++      return {};
++    }
++    const config = (await response.json()) as WorkspaceConfig;
++    CONFIG_CACHE.set(workspaceId, config);
++    return config;
++  } catch (err) {
++    console.error("Failed to fetch workspace config:", err);
++    return {};
++  }
++}
++
++export async function updateWorkspaceConfig(
++  workspaceId: string,
++  config: Partial<WorkspaceConfig>
++): Promise<WorkspaceConfig> {
++  try {
++    const response = await fetch(`/api/workspaces/${workspaceId}/config`, {
++      method: "POST",
++      headers: { "Content-Type": "application/json" },
++      body: JSON.stringify(config),
++    });
++
++    if (!response.ok) {
++      throw new Error(`Failed to update config: ${response.statusText}`);
++    }
++
++    const updated = (await response.json()) as WorkspaceConfig;
++    CONFIG_CACHE.set(workspaceId, updated);
++    return updated;
++  } catch (err) {
++    console.error("Failed to update workspace config:", err);
++    throw err;
++  }
++}
++
++export function clearConfigCache(workspaceId?: string): void {
++  if (workspaceId) {
++    CONFIG_CACHE.delete(workspaceId);
++  } else {
++    CONFIG_CACHE.clear();
++  }
++}
++
++export async function getApiKey(
++  workspaceId: string,
++  provider: "openai" | "hubspot" | "lusha"
++): Promise<string | undefined> {
++  const config = await fetchWorkspaceConfig(workspaceId);
++  let key = config.apiKeys?.[provider];
++
++  // Fallback to env vars
++  if (!key) {
++    if (provider === "openai") key = process.env.ANTHROPIC_API_KEY;
++    if (provider === "hubspot") key = process.env.HUBSPOT_ACCESS_TOKEN;
++  }
++
++  return key;
++}
+diff --git a/supabase/schema.sql b/supabase/schema.sql
+index e7b67e9..9e1e6e5 100644
+--- a/supabase/schema.sql
++++ b/supabase/schema.sql
+@@ -100,6 +100,14 @@ create table if not exists public.hubspot_sync_log (
+   created_at timestamptz not null default now()
+ );
+ 
++-- Workspace configuration (API keys, columns, settings)
++alter table public.workspaces add column if not exists config jsonb default '{"apiKeys":{}, "columns":[], "leadStatuses":["qualified","not_qualified"]}'::jsonb;
++
++-- Lead source tracking
++alter table public.leads add column if not exists source text default 'manual';
++alter table public.leads add column if not exists legacy_status text;
++alter table public.leads add column if not exists ai_qualification_score integer;
++
+ -- Migration for existing projects
+ alter table public.leads add column if not exists workspace_id text not null default 'legacy-scale-models';
+ alter table public.leads add column if not exists market text not null default '';
+@@ -112,6 +120,21 @@ alter table public.leads add column if not exists ai_message text;
+ alter table public.leads add column if not exists ai_summary text;
+ alter table public.leads add column if not exists ai_next_step text;
+ 
++-- Migrate legacy status to qualified/not_qualified (initial migration)
++update public.leads set
++  legacy_status = status,
++  status = case
++    when status in ('verstuurd', 'opvolgen', 'gewonnen') then 'qualified'
++    else 'not_qualified'
++  end,
++  ai_qualification_score = case
++    when status = 'gewonnen' then 90
++    when status = 'opvolgen' then 70
++    when status = 'verstuurd' then 60
++    else 30
++  end
++where legacy_status is null;
++
+ create index if not exists leads_user_id_idx on public.leads (user_id);
+ create index if not exists leads_workspace_id_idx on public.leads (workspace_id);
+ create index if not exists contacts_account_id_idx on public.contacts (account_id);
+-- 
+2.43.0
+
+
+From 628ac32990d2fe981a1fa8caeb8a6eaed0ee25e2 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Tue, 16 Jun 2026 11:48:10 +0000
+Subject: [PATCH 2/8] Phase 3: Add configurable columns foundation
+
+- Create ColumnConfigCard component for column management
+- Add column render helpers (getCellValue, getColumnLabel, etc.)
+- Add column configuration to settings page
+- Support drag-drop reordering and show/hide toggling
+- Store column config in workspace settings
+
+https://claude.ai/code/session_017bduQGW5noeKxit6G9d8eo
+---
+ app/(dashboard)/settings/page.tsx |   3 +
+ components/ColumnConfigCard.tsx   | 176 ++++++++++++++++++++++++++++++
+ lib/columns/render.ts             |  94 ++++++++++++++++
+ 3 files changed, 273 insertions(+)
+ create mode 100644 components/ColumnConfigCard.tsx
+ create mode 100644 lib/columns/render.ts
+
+diff --git a/app/(dashboard)/settings/page.tsx b/app/(dashboard)/settings/page.tsx
+index a76ee1a..8a5351a 100644
+--- a/app/(dashboard)/settings/page.tsx
++++ b/app/(dashboard)/settings/page.tsx
+@@ -6,6 +6,7 @@ import { useAuth } from "@/lib/auth";
+ import { useApp } from "@/lib/store";
+ import { getIcpForWorkspace, getWorkspace } from "@/lib/workspace/context";
+ import ApiKeysCard from "@/components/ApiKeysCard";
++import ColumnConfigCard from "@/components/ColumnConfigCard";
+ 
+ const PACKAGES = [
+   { credits: 50, price: "€49" },
+@@ -152,6 +153,8 @@ export default function SettingsPage() {
+ 
+         <ApiKeysCard />
+ 
++        <ColumnConfigCard />
++
+         <div className="card">
+           <div className="setting-row">
+             <div className="setting-info">
+diff --git a/components/ColumnConfigCard.tsx b/components/ColumnConfigCard.tsx
+new file mode 100644
+index 0000000..110a016
+--- /dev/null
++++ b/components/ColumnConfigCard.tsx
+@@ -0,0 +1,176 @@
++"use client";
++
++import { useState, useEffect } from "react";
++import { useApp } from "@/lib/store";
++import {
++  fetchWorkspaceConfig,
++  updateWorkspaceConfig,
++  clearConfigCache,
++} from "@/lib/workspace/config";
++import { DEFAULT_COLUMNS } from "@/lib/types";
++import type { ColumnConfig, WorkspaceConfig } from "@/lib/types";
++
++export default function ColumnConfigCard() {
++  const { workspaceId } = useApp();
++  const [columns, setColumns] = useState<ColumnConfig[]>(DEFAULT_COLUMNS);
++  const [saving, setSaving] = useState(false);
++  const [message, setMessage] = useState("");
++  const [draggedItem, setDraggedItem] = useState<number | null>(null);
++
++  useEffect(() => {
++    loadColumns();
++  }, [workspaceId]);
++
++  async function loadColumns() {
++    const cfg = await fetchWorkspaceConfig(workspaceId);
++    if (cfg.columns && cfg.columns.length > 0) {
++      setColumns(cfg.columns);
++    } else {
++      setColumns(DEFAULT_COLUMNS);
++    }
++  }
++
++  async function handleSave() {
++    setSaving(true);
++    setMessage("");
++
++    try {
++      await updateWorkspaceConfig(workspaceId, { columns });
++      clearConfigCache(workspaceId);
++      setMessage("✓ Kolommen opgeslagen");
++      setTimeout(() => setMessage(""), 3000);
++    } catch (err) {
++      setMessage(
++        "✗ Fout bij opslaan: " + (err instanceof Error ? err.message : "Unknown")
++      );
++    } finally {
++      setSaving(false);
++    }
++  }
++
++  function toggleColumn(index: number) {
++    const updated = [...columns];
++    updated[index].visible = !updated[index].visible;
++    setColumns(updated);
++  }
++
++  function resetToDefaults() {
++    setColumns([...DEFAULT_COLUMNS]);
++    setMessage("Teruggezet naar standaardkolommen");
++    setTimeout(() => setMessage(""), 3000);
++  }
++
++  function handleDragStart(index: number) {
++    setDraggedItem(index);
++  }
++
++  function handleDragOver(e: React.DragEvent) {
++    e.preventDefault();
++  }
++
++  function handleDrop(index: number) {
++    if (draggedItem === null || draggedItem === index) {
++      setDraggedItem(null);
++      return;
++    }
++
++    const updated = [...columns];
++    const [draggedColumn] = updated.splice(draggedItem, 1);
++    updated.splice(index, 0, draggedColumn);
++
++    // Update order property
++    updated.forEach((col, i) => {
++      col.order = i;
++    });
++
++    setColumns(updated);
++    setDraggedItem(null);
++  }
++
++  return (
++    <div className="card">
++      <div className="card-title">Leadkolommen</div>
++      <div className="card-desc">
++        Sleep om volgorde te wijzigen. Vink uit om kolommen te verbergen.
++      </div>
++
++      <div style={{ marginTop: 16, marginBottom: 20 }}>
++        {columns.map((col, idx) => (
++          <div
++            key={col.key}
++            draggable
++            onDragStart={() => handleDragStart(idx)}
++            onDragOver={handleDragOver}
++            onDrop={() => handleDrop(idx)}
++            style={{
++              display: "flex",
++              alignItems: "center",
++              gap: 12,
++              padding: "8px 12px",
++              marginBottom: 4,
++              background: draggedItem === idx ? "#f0f0f0" : "#fafafa",
++              border: "1px solid #ddd",
++              borderRadius: 4,
++              cursor: "grab",
++            }}
++          >
++            <span style={{ color: "#999", userSelect: "none" }}>⋮</span>
++            <input
++              type="checkbox"
++              checked={col.visible}
++              disabled={col.readonly}
++              onChange={() => toggleColumn(idx)}
++              style={{ cursor: col.readonly ? "not-allowed" : "pointer" }}
++            />
++            <span
++              style={{
++                flex: 1,
++                fontSize: 14,
++                fontWeight: col.visible ? 500 : 400,
++                opacity: col.visible ? 1 : 0.6,
++              }}
++            >
++              {col.label}
++              {col.readonly && <span style={{ fontSize: 11, color: "#999" }}> (verplicht)</span>}
++            </span>
++            <span style={{ color: "#999", fontSize: 12 }}>
++              {col.visible ? "✓ Zichtbaar" : "✗ Verborgen"}
++            </span>
++          </div>
++        ))}
++      </div>
++
++      <div style={{ display: "flex", gap: 12 }}>
++        <button
++          type="button"
++          className="btn-primary"
++          onClick={handleSave}
++          disabled={saving}
++          style={{ flex: 1 }}
++        >
++          {saving ? "Opslaan..." : "Opslaan"}
++        </button>
++        <button
++          type="button"
++          className="btn-secondary"
++          onClick={resetToDefaults}
++          style={{ flex: 1 }}
++        >
++          Reset
++        </button>
++      </div>
++
++      {message && (
++        <p
++          style={{
++            marginTop: 12,
++            color: message.includes("✓") ? "#16a34a" : "#dc2626",
++            fontSize: 13,
++          }}
++        >
++          {message}
++        </p>
++      )}
++    </div>
++  );
++}
+diff --git a/lib/columns/render.ts b/lib/columns/render.ts
+new file mode 100644
+index 0000000..7c5c655
+--- /dev/null
++++ b/lib/columns/render.ts
+@@ -0,0 +1,94 @@
++import type { Lead, Contact } from "@/lib/types";
++
++export function getCellValue(lead: Lead, key: string): string {
++  switch (key) {
++    case "company":
++      return lead.company;
++    case "market":
++      return lead.market;
++    case "sector":
++      return lead.sector;
++    case "fitReason":
++      return lead.fitReason;
++    case "employees":
++      return lead.employees ? lead.employees.toString() : "";
++    case "revenue":
++      return lead.revenue;
++    case "country":
++      return lead.country;
++    case "website":
++      return lead.website;
++    case "score":
++      return lead.score ? lead.score.toString() : "0";
++    case "aiQualificationScore":
++      return lead.aiQualificationScore ? lead.aiQualificationScore.toString() : "0";
++    case "status":
++      return lead.status;
++    case "batch":
++      return lead.batch;
++    case "notes":
++      return lead.notes;
++    case "aiSummary":
++      return lead.aiSummary || "";
++    case "source":
++      return lead.source || "manual";
++    default:
++      return "";
++  }
++}
++
++export function getColumnLabel(key: string): string {
++  const labels: Record<string, string> = {
++    company: "Bedrijf",
++    market: "Markt",
++    sector: "Sector",
++    fitReason: "Waarom fit",
++    employees: "Medewerkers",
++    revenue: "Omzet",
++    country: "Land",
++    website: "Website",
++    score: "Score",
++    aiQualificationScore: "AI Score",
++    status: "Status",
++    batch: "Batch",
++    notes: "Notities",
++    aiSummary: "AI Samenvatting",
++    source: "Bron",
++  };
++  return labels[key] || key;
++}
++
++export function isEditableColumn(key: string): boolean {
++  const editableColumns = [
++    "company",
++    "market",
++    "sector",
++    "fitReason",
++    "employees",
++    "revenue",
++    "website",
++    "notes",
++  ];
++  return editableColumns.includes(key);
++}
++
++export function getColumnWidth(key: string): string {
++  const widths: Record<string, string> = {
++    company: "150px",
++    market: "100px",
++    sector: "120px",
++    fitReason: "150px",
++    employees: "100px",
++    revenue: "100px",
++    country: "80px",
++    website: "120px",
++    score: "80px",
++    aiQualificationScore: "80px",
++    status: "120px",
++    batch: "100px",
++    notes: "150px",
++    aiSummary: "200px",
++    source: "80px",
++  };
++  return widths[key] || "120px";
++}
+-- 
+2.43.0
+
+
+From 359a431e7418884a356265bcf668dfb2fd0a471f Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Tue, 16 Jun 2026 11:48:11 +0000
+Subject: [PATCH 3/8] Phase 4: AI Lead Finding - generate leads via AI
+
+- Create find-via-ai API endpoint using OpenAI/Claude
+- Generate realistic B2B leads based on market, sector, company size
+- Store generated leads with source='ai_generated'
+- Create FindLeadsViaAiModal component for user input
+- Add 'AI Leads zoeken' button to leads page
+- Integrate with workspace config for API keys
+- Include credit cost estimation (3 credits per lead)
+
+https://claude.ai/code/session_017bduQGW5noeKxit6G9d8eo
+---
+ app/(dashboard)/leads/LeadsPageContent.tsx |  18 ++
+ app/api/leads/find-via-ai/route.ts         | 254 +++++++++++++++++++++
+ components/FindLeadsViaAiModal.tsx         | 201 ++++++++++++++++
+ 3 files changed, 473 insertions(+)
+ create mode 100644 app/api/leads/find-via-ai/route.ts
+ create mode 100644 components/FindLeadsViaAiModal.tsx
+
+diff --git a/app/(dashboard)/leads/LeadsPageContent.tsx b/app/(dashboard)/leads/LeadsPageContent.tsx
+index 739671e..9a05978 100644
+--- a/app/(dashboard)/leads/LeadsPageContent.tsx
++++ b/app/(dashboard)/leads/LeadsPageContent.tsx
+@@ -8,6 +8,7 @@ import { STATUS_LABELS } from "@/lib/types";
+ import LeadDetailPanel from "@/components/LeadDetailPanel";
+ import AddLeadModal from "@/components/AddLeadModal";
+ import LinkedInImport from "@/components/LinkedInImport";
++import FindLeadsViaAiModal from "@/components/FindLeadsViaAiModal";
+ import LeadsGrid from "@/components/LeadsGrid";
+ 
+ type Filter = LeadStatus | "alle";
+@@ -33,6 +34,7 @@ export default function LeadsPageContent() {
+   const [search, setSearch] = useState("");
+   const [showAddModal, setShowAddModal] = useState(false);
+   const [showLinkedInImport, setShowLinkedInImport] = useState(false);
++  const [showAiFinder, setShowAiFinder] = useState(false);
+   const [runningAutomation, setRunningAutomation] = useState(false);
+   const [runningAi, setRunningAi] = useState(false);
+   const [runningEnrich, setRunningEnrich] = useState(false);
+@@ -223,6 +225,13 @@ export default function LeadsPageContent() {
+         >
+           Importeer LinkedIn CSV
+         </button>
++        <button
++          className="btn-secondary"
++          type="button"
++          onClick={() => setShowAiFinder(true)}
++        >
++          🤖 AI Leads zoeken
++        </button>
+         <button className="btn-primary" type="button" onClick={() => setShowAddModal(true)}>
+           + Voeg lead toe
+         </button>
+@@ -335,6 +344,15 @@ export default function LeadsPageContent() {
+       {showLinkedInImport && (
+         <LinkedInImport onClose={() => setShowLinkedInImport(false)} />
+       )}
++      {showAiFinder && (
++        <FindLeadsViaAiModal
++          isOpen={showAiFinder}
++          onClose={() => setShowAiFinder(false)}
++          onSuccess={() => {
++            setShowAiFinder(false);
++          }}
++        />
++      )}
+     </>
+   );
+ }
+diff --git a/app/api/leads/find-via-ai/route.ts b/app/api/leads/find-via-ai/route.ts
+new file mode 100644
+index 0000000..30f3e02
+--- /dev/null
++++ b/app/api/leads/find-via-ai/route.ts
+@@ -0,0 +1,254 @@
++import { createClient } from "@supabase/supabase-js";
++import { getAiConfig } from "@/lib/automation/provider";
++import { callOpenAI } from "@/lib/automation/openai";
++import { LEGACY_SCALE_MODELS_ICP } from "@/lib/icp/legacy-scale-models";
++import type { Lead } from "@/lib/types";
++import { generateId } from "@/lib/utils";
++
++const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
++const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
++
++if (!supabaseUrl || !supabaseServiceKey) {
++  throw new Error("Missing Supabase env vars");
++}
++
++const supabase = createClient(supabaseUrl, supabaseServiceKey);
++
++interface FindLeadsRequest {
++  workspaceId: string;
++  market?: string;
++  sector?: string;
++  companySize?: "small" | "medium" | "large";
++  country?: string;
++  fitCriteria?: string;
++  count?: number;
++}
++
++interface GeneratedLead {
++  company: string;
++  website?: string;
++  sector: string;
++  market: string;
++  country: string;
++  employees?: number;
++  revenue?: string;
++  fitReason?: string;
++}
++
++function parseCompanySize(size: string): number {
++  switch (size) {
++    case "small":
++      return 50;
++    case "medium":
++      return 250;
++    case "large":
++      return 1000;
++    default:
++      return 100;
++  }
++}
++
++async function generateLeads(
++  count: number,
++  market: string,
++  sector: string,
++  companySize: number,
++  country: string,
++  fitCriteria: string,
++  apiKey: string
++): Promise<GeneratedLead[]> {
++  const icp = LEGACY_SCALE_MODELS_ICP;
++
++  const prompt = `Generate ${count} realistic B2B lead candidates for a sales outreach campaign.
++
++Requirements:
++- Market: ${market}
++- Primary sector: ${sector}
++- Company size: ~${companySize} employees
++- Geography: ${country}
++- ICP fit criteria: ${fitCriteria}
++- Company quality: Real, operational companies that likely exist
++
++Constraints:
++- Only generate companies that are plausible and realistic
++- Include a range of company sizes around the target (±20%)
++- Ensure variety in sub-sectors within the primary sector
++- All data must be realistic and factual in nature
++
++Return ONLY a valid JSON array with no additional text. Each object must have exactly these fields (no extra fields):
++{
++  "company": "Company Name",
++  "sector": "specific sector",
++  "market": "${market}",
++  "country": "${country}",
++  "employees": number between ${companySize * 0.8} and ${companySize * 1.2},
++  "fitReason": "brief explanation of why they fit the ICP"
++}
++
++Example response format:
++[
++  {"company": "Example Corp", "sector": "Technology", "market": "${market}", "country": "${country}", "employees": 150, "fitReason": "Growing tech company matching target profile"},
++  {"company": "Sample Inc", "sector": "Manufacturing", "market": "${market}", "country": "${country}", "employees": 200, "fitReason": "Mid-size manufacturer with expansion plans"}
++]
++
++Now generate the leads:`;
++
++  try {
++    const response = await callOpenAI(
++      apiKey,
++      "You are a B2B lead research expert. Generate realistic company leads based on the provided criteria.",
++      prompt,
++      2000
++    );
++
++    // Parse JSON response
++    const jsonMatch = response.match(/\[[\s\S]*\]/);
++    if (!jsonMatch) {
++      throw new Error("No JSON found in response");
++    }
++
++    const leads: GeneratedLead[] = JSON.parse(jsonMatch[0]);
++
++    // Validate and sanitize
++    return leads
++      .filter(
++        (l) =>
++          l.company &&
++          typeof l.company === "string" &&
++          l.sector &&
++          typeof l.sector === "string"
++      )
++      .slice(0, count)
++      .map((l) => ({
++        company: l.company.trim().slice(0, 100),
++        sector: l.sector.trim().slice(0, 50),
++        market: l.market || market,
++        country: l.country || country,
++        employees: Math.max(10, Math.min(10000, l.employees || companySize)),
++        fitReason: (l.fitReason || "").trim().slice(0, 200),
++        website: l.website ? l.website.trim().slice(0, 100) : "",
++      }));
++  } catch (err) {
++    console.error("Error generating leads via AI:", err);
++    throw new Error(
++      "Failed to generate leads: " + (err instanceof Error ? err.message : "Unknown error")
++    );
++  }
++}
++
++export async function POST(request: Request) {
++  try {
++    const body = (await request.json()) as FindLeadsRequest;
++    const {
++      workspaceId,
++      market = "Technology",
++      sector = "Software",
++      companySize = "medium",
++      country = "Nederland",
++      fitCriteria = "Growing companies with expansion potential",
++      count = 5,
++    } = body;
++
++    if (!workspaceId) {
++      return Response.json({ error: "Missing workspaceId" }, { status: 400 });
++    }
++
++    if (count < 1 || count > 20) {
++      return Response.json(
++        { error: "Count must be between 1 and 20" },
++        { status: 400 }
++      );
++    }
++
++    // Get API key from workspace config
++    const config = await supabase
++      .from("workspaces")
++      .select("config")
++      .eq("id", workspaceId)
++      .single();
++
++    if (config.error) {
++      return Response.json(
++        { error: "Workspace not found" },
++        { status: 404 }
++      );
++    }
++
++    const apiKey =
++      config.data?.config?.apiKeys?.openai || process.env.ANTHROPIC_API_KEY;
++
++    if (!apiKey) {
++      return Response.json(
++        { error: "No AI API key configured for workspace" },
++        { status: 400 }
++      );
++    }
++
++    // Generate leads via AI
++    const companySize_ = parseCompanySize(companySize);
++    const generatedLeads = await generateLeads(
++      count,
++      market,
++      sector,
++      companySize_,
++      country,
++      fitCriteria,
++      apiKey
++    );
++
++    // Get userId from headers (would come from auth middleware in production)
++    const userId = "system";
++
++    // Insert generated leads into database
++    const leadsToInsert = generatedLeads.map((l) => ({
++      id: generateId(),
++      user_id: userId,
++      workspace_id: workspaceId,
++      company: l.company,
++      sector: l.sector,
++      market: l.market,
++      country: l.country,
++      employees: l.employees,
++      fit_reason: l.fitReason,
++      website: l.website || "",
++      status: "not_qualified",
++      batch: new Date().toISOString().slice(0, 10),
++      is_new: true,
++      source: "ai_generated",
++      notes: `Generated via AI on ${new Date().toLocaleDateString("nl-NL")}`,
++      message: "",
++      contact_name: "",
++      contact_title: "",
++      linkedin_url: "",
++      linkedin_company_url: "",
++    }));
++
++    const { data, error } = await supabase
++      .from("leads")
++      .insert(leadsToInsert)
++      .select();
++
++    if (error) {
++      return Response.json(
++        { error: "Failed to insert leads: " + error.message },
++        { status: 500 }
++      );
++    }
++
++    return Response.json({
++      success: true,
++      count: data?.length || 0,
++      leads: data || [],
++    });
++  } catch (err) {
++    console.error("Error in find-via-ai endpoint:", err);
++    return Response.json(
++      {
++        error:
++          "Server error: " +
++          (err instanceof Error ? err.message : "Unknown error"),
++      },
++      { status: 500 }
++    );
++  }
++}
+diff --git a/components/FindLeadsViaAiModal.tsx b/components/FindLeadsViaAiModal.tsx
+new file mode 100644
+index 0000000..8798001
+--- /dev/null
++++ b/components/FindLeadsViaAiModal.tsx
+@@ -0,0 +1,201 @@
++"use client";
++
++import { useState } from "react";
++import { useApp } from "@/lib/store";
++import { LEGACY_SCALE_MODELS_ICP } from "@/lib/icp/legacy-scale-models";
++
++interface Props {
++  isOpen: boolean;
++  onClose: () => void;
++  onSuccess?: () => void;
++}
++
++export default function FindLeadsViaAiModal({ isOpen, onClose, onSuccess }: Props) {
++  const { workspaceId, showToast, addCredits } = useApp();
++  const [market, setMarket] = useState("Technology");
++  const [sector, setSector] = useState("Software");
++  const [companySize, setCompanySize] = useState<"small" | "medium" | "large">("medium");
++  const [country, setCountry] = useState("Nederland");
++  const [fitCriteria, setFitCriteria] = useState("Growing companies with expansion potential");
++  const [count, setCount] = useState(5);
++  const [loading, setLoading] = useState(false);
++  const [error, setError] = useState("");
++
++  const icp = LEGACY_SCALE_MODELS_ICP;
++
++  async function handleSubmit(e: React.FormEvent) {
++    e.preventDefault();
++    setError("");
++    setLoading(true);
++
++    try {
++      const response = await fetch("/api/leads/find-via-ai", {
++        method: "POST",
++        headers: { "Content-Type": "application/json" },
++        body: JSON.stringify({
++          workspaceId,
++          market,
++          sector,
++          companySize,
++          country,
++          fitCriteria,
++          count,
++        }),
++      });
++
++      if (!response.ok) {
++        const data = await response.json();
++        throw new Error(data.error || "Failed to generate leads");
++      }
++
++      const result = await response.json();
++      const creditsUsed = count * 3; // 3 credits per lead
++      addCredits(-creditsUsed, `AI leads gegenereerd: ${result.count} leads`);
++
++      showToast(`✓ ${result.count} leads gegenereerd!`);
++      onSuccess?.();
++      onClose();
++    } catch (err) {
++      const msg = err instanceof Error ? err.message : "Unknown error";
++      setError(msg);
++      showToast("✗ " + msg);
++    } finally {
++      setLoading(false);
++    }
++  }
++
++  if (!isOpen) return null;
++
++  return (
++    <>
++      <div
++        className="modal-overlay"
++        onClick={onClose}
++        role="button"
++        tabIndex={0}
++        onKeyDown={(e) => e.key === "Escape" && onClose()}
++      />
++      <div className="modal">
++        <div className="modal-header">
++          <h2>AI Leads Zoeken</h2>
++          <button
++            type="button"
++            className="modal-close"
++            onClick={onClose}
++            aria-label="Sluiten"
++          >
++            ×
++          </button>
++        </div>
++
++        <form onSubmit={handleSubmit}>
++          <div className="modal-body">
++            <div className="form-group">
++              <label className="form-label">Markt</label>
++              <select
++                className="form-input"
++                value={market}
++                onChange={(e) => setMarket(e.target.value)}
++              >
++                {icp.markets.map((m) => (
++                  <option key={m.label} value={m.label}>
++                    {m.label}
++                  </option>
++                ))}
++              </select>
++            </div>
++
++            <div className="form-group">
++              <label className="form-label">Sector</label>
++              <input
++                className="form-input"
++                type="text"
++                value={sector}
++                onChange={(e) => setSector(e.target.value)}
++                placeholder="bijv. Software, Manufacturing"
++              />
++            </div>
++
++            <div className="form-group">
++              <label className="form-label">Bedrijfsgrootte</label>
++              <select
++                className="form-input"
++                value={companySize}
++                onChange={(e) => setCompanySize(e.target.value as "small" | "medium" | "large")}
++              >
++                <option value="small">Klein (50 werknemers)</option>
++                <option value="medium">Gemiddeld (250 werknemers)</option>
++                <option value="large">Groot (1000+ werknemers)</option>
++              </select>
++            </div>
++
++            <div className="form-group">
++              <label className="form-label">Land</label>
++              <select
++                className="form-input"
++                value={country}
++                onChange={(e) => setCountry(e.target.value)}
++              >
++                <option value="Nederland">Nederland</option>
++                <option value="België">België</option>
++                <option value="Duitsland">Duitsland</option>
++                <option value="Noorwegen">Noorwegen</option>
++                <option value="Portugal">Portugal</option>
++              </select>
++            </div>
++
++            <div className="form-group">
++              <label className="form-label">ICP fit criteria</label>
++              <textarea
++                className="form-input"
++                value={fitCriteria}
++                onChange={(e) => setFitCriteria(e.target.value)}
++                placeholder="Omschrijf wat je zoekt..."
++                style={{ minHeight: 80 }}
++              />
++            </div>
++
++            <div className="form-group">
++              <label className="form-label">Aantal leads (1-20)</label>
++              <input
++                className="form-input"
++                type="number"
++                min="1"
++                max="20"
++                value={count}
++                onChange={(e) => setCount(Math.min(20, Math.max(1, parseInt(e.target.value) || 1)))}
++              />
++              <p style={{ fontSize: 12, color: "#999", marginTop: 4 }}>
++                Kosten: {count * 3} credits ({count} × 3 credits per lead)
++              </p>
++            </div>
++
++            {error && (
++              <div style={{ color: "#dc2626", fontSize: 13, marginTop: 12 }}>
++                {error}
++              </div>
++            )}
++          </div>
++
++          <div className="modal-footer">
++            <button
++              type="button"
++              className="btn-secondary"
++              onClick={onClose}
++              disabled={loading}
++            >
++              Annuleren
++            </button>
++            <button
++              type="submit"
++              className="btn-primary"
++              disabled={loading}
++            >
++              {loading ? "Leads genereren..." : "Zoeken"}
++            </button>
++          </div>
++        </form>
++      </div>
++    </>
++  );
++}
+-- 
+2.43.0
+
+
+From b16d04685d88b1eb3ad8d73f5a6cb56a8a091835 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Tue, 16 Jun 2026 11:48:11 +0000
+Subject: [PATCH 4/8] Add per-workspace API provider integration management
+
+- Create IntegrationCard component for configurable API key management
+- Build new Integrations dashboard page with all providers
+- Add test endpoints for OpenAI, Anthropic, HubSpot validation
+- Support user-provided API keys (not env var dependent)
+- Show configuration status per integration
+- Include password-masked input + clear/remove functionality
+- Add helper text with links to get keys from each provider
+- Build infrastructure for future OAuth integrations (LinkedIn, HubSpot OAuth)
+
+Each user can now configure their own API keys without env vars:
+- OpenAI (GPT-4o-mini)
+- Claude/Anthropic (AI enrichment)
+- HubSpot (CRM sync)
+- Lusha (contact enrichment)
+
+https://claude.ai/code/session_017bduQGW5noeKxit6G9d8eo
+---
+ app/(dashboard)/integrations-new/page.tsx    | 160 ++++++++++
+ app/api/integrations/test/anthropic/route.ts |  88 ++++++
+ app/api/integrations/test/hubspot/route.ts   |  74 +++++
+ app/api/integrations/test/openai/route.ts    |  70 +++++
+ app/api/integrations/test/route.ts           |  57 ++++
+ components/IntegrationCard.tsx               | 292 +++++++++++++++++++
+ 6 files changed, 741 insertions(+)
+ create mode 100644 app/(dashboard)/integrations-new/page.tsx
+ create mode 100644 app/api/integrations/test/anthropic/route.ts
+ create mode 100644 app/api/integrations/test/hubspot/route.ts
+ create mode 100644 app/api/integrations/test/openai/route.ts
+ create mode 100644 app/api/integrations/test/route.ts
+ create mode 100644 components/IntegrationCard.tsx
+
+diff --git a/app/(dashboard)/integrations-new/page.tsx b/app/(dashboard)/integrations-new/page.tsx
+new file mode 100644
+index 0000000..1290167
+--- /dev/null
++++ b/app/(dashboard)/integrations-new/page.tsx
+@@ -0,0 +1,160 @@
++"use client";
++
++import { useAuth } from "@/lib/auth";
++import IntegrationCard from "@/components/IntegrationCard";
++
++const PROVIDERS = [
++  {
++    id: "openai",
++    name: "OpenAI",
++    description: "Voor GPT-4 AI verrijking van leads",
++    icon: "🟢",
++    keyField: "openai",
++    placeholder: "sk-...",
++    helpText: "Je OpenAI API key van https://platform.openai.com/api-keys",
++    testEndpoint: "/api/integrations/test/openai",
++  },
++  {
++    id: "anthropic",
++    name: "Claude (Anthropic)",
++    description: "Voor Claude AI verrijking van leads",
++    icon: "🧠",
++    keyField: "anthropic",
++    placeholder: "sk-ant-...",
++    helpText: "Je Anthropic API key van https://console.anthropic.com",
++    testEndpoint: "/api/integrations/test/anthropic",
++  },
++  {
++    id: "hubspot",
++    name: "HubSpot",
++    description: "CRM synchronisatie & contact management",
++    icon: "🔵",
++    keyField: "hubspot",
++    placeholder: "pat-...",
++    helpText: "HubSpot Private App token van https://app.hubspot.com/settings/apps",
++    testEndpoint: "/api/integrations/test/hubspot",
++  },
++  {
++    id: "lusha",
++    name: "Lusha",
++    description: "Contactgegevens verrijking (email, telefoon)",
++    icon: "📧",
++    keyField: "lusha",
++    placeholder: "lu_...",
++    helpText: "Lusha API key van https://console.lusha.co",
++    testEndpoint: "/api/integrations/test/lusha",
++  },
++];
++
++export default function IntegrationsNewPage() {
++  const { user } = useAuth();
++
++  if (!user) return null;
++
++  return (
++    <>
++      <div className="topbar">
++        <span className="topbar-title">Integraties</span>
++        <span className="topbar-sub">— Verbind je API providers</span>
++      </div>
++
++      <div className="page-scroll">
++        <div className="card">
++          <div className="card-title">API Providers Configureren</div>
++          <div className="card-desc">
++            Voeg je eigen API keys toe zodat je alle tools kan gebruiken. Deze keys worden veilig opgeslagen in je workspace.
++          </div>
++        </div>
++
++        <div className="card">
++          <div className="card-title">AI Providers</div>
++          <div className="card-desc">Kies je favoriete AI voor lead verrijking</div>
++          {PROVIDERS.filter((p) => p.id === "openai" || p.id === "anthropic").map(
++            (provider) => (
++              <IntegrationCard key={provider.id} provider={provider} />
++            )
++          )}
++        </div>
++
++        <div className="card">
++          <div className="card-title">CRM & Data Providers</div>
++          <div className="card-desc">Synchroniseer met je CRM en verrijk met contactgegevens</div>
++          {PROVIDERS.filter((p) => p.id === "hubspot" || p.id === "lusha").map(
++            (provider) => (
++              <IntegrationCard key={provider.id} provider={provider} />
++            )
++          )}
++        </div>
++
++        <div className="card">
++          <div className="card-title">Binnenkort</div>
++          <div className="card-desc">Deze integraties komen eraan</div>
++          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
++            {[
++              { icon: "🔗", name: "LinkedIn", desc: "OAuth login & CSV export" },
++              {
++                icon: "🔄",
++                name: "Zapier",
++                desc: "Workflow automatisatie",
++              },
++              {
++                icon: "📊",
++                name: "Google Sheets",
++                desc: "2-way sync met spreadsheets",
++              },
++            ].map((item) => (
++              <div
++                key={item.name}
++                style={{
++                  padding: 12,
++                  background: "#f9fafb",
++                  borderRadius: 6,
++                  border: "1px dashed #e5e7eb",
++                }}
++              >
++                <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
++                  <span style={{ fontSize: 18 }}>{item.icon}</span>
++                  <div>
++                    <div style={{ fontWeight: 600, fontSize: 14 }}>{item.name}</div>
++                    <div style={{ fontSize: 12, color: "#666" }}>{item.desc}</div>
++                  </div>
++                </div>
++              </div>
++            ))}
++          </div>
++        </div>
++
++        <div className="card">
++          <div className="card-title">Help & Documentatie</div>
++          <div className="card-desc">Stap-voor-stap guides voor elke integratie</div>
++          <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
++            {[
++              { icon: "📖", title: "OpenAI Setup Guide", link: "#" },
++              { icon: "📖", title: "HubSpot Private App Token", link: "#" },
++              { icon: "🎥", title: "Video: Lead Enrichment Workflow", link: "#" },
++            ].map((item) => (
++              <a
++                key={item.title}
++                href={item.link}
++                style={{
++                  display: "flex",
++                  alignItems: "center",
++                  gap: 8,
++                  padding: 10,
++                  background: "#f9fafb",
++                  borderRadius: 6,
++                  textDecoration: "none",
++                  color: "#0066cc",
++                  fontSize: 14,
++                }}
++              >
++                <span>{item.icon}</span>
++                {item.title} →
++              </a>
++            ))}
++          </div>
++        </div>
++      </div>
++    </>
++  );
++}
+diff --git a/app/api/integrations/test/anthropic/route.ts b/app/api/integrations/test/anthropic/route.ts
+new file mode 100644
+index 0000000..4acc838
+--- /dev/null
++++ b/app/api/integrations/test/anthropic/route.ts
+@@ -0,0 +1,88 @@
++import { createClient } from "@supabase/supabase-js";
++
++const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
++const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
++
++if (!supabaseUrl || !supabaseServiceKey) {
++  throw new Error("Missing Supabase env vars");
++}
++
++const supabase = createClient(supabaseUrl, supabaseServiceKey);
++
++export async function POST(request: Request) {
++  try {
++    const body = await request.json() as { workspaceId: string };
++    const { workspaceId } = body;
++
++    if (!workspaceId) {
++      return Response.json({ error: "Missing workspaceId" }, { status: 400 });
++    }
++
++    // Fetch workspace config
++    const { data: workspace, error } = await supabase
++      .from("workspaces")
++      .select("config")
++      .eq("id", workspaceId)
++      .single();
++
++    if (error) {
++      return Response.json({ error: "Workspace not found" }, { status: 404 });
++    }
++
++    const apiKey = workspace?.config?.apiKeys?.anthropic;
++    if (!apiKey) {
++      return Response.json({ error: "Anthropic API key not configured" }, { status: 400 });
++    }
++
++    // Test the Anthropic API key
++    const response = await fetch("https://api.anthropic.com/v1/messages", {
++      method: "POST",
++      headers: {
++        "x-api-key": apiKey,
++        "Content-Type": "application/json",
++        "anthropic-version": "2023-06-01",
++      },
++      body: JSON.stringify({
++        model: "claude-3-5-sonnet-20241022",
++        max_tokens: 100,
++        messages: [
++          {
++            role: "user",
++            content: "Say 'API key works!' in Dutch with one sentence.",
++          },
++        ],
++      }),
++    });
++
++    if (!response.ok) {
++      const data = await response.json() as { error?: { message?: string } };
++      return Response.json(
++        {
++          success: false,
++          error: data.error?.message || "Anthropic API error - key might be invalid",
++          status: response.status,
++        },
++        { status: 400 }
++      );
++    }
++
++    const data = await response.json() as { content?: Array<{ text?: string }> };
++
++    return Response.json({
++      success: true,
++      provider: "anthropic",
++      message: data.content?.[0]?.text || "Verbonden met Claude",
++      configured: true,
++    });
++  } catch (err) {
++    const errorMsg = err instanceof Error ? err.message : "Unknown error";
++    return Response.json(
++      {
++        success: false,
++        error: errorMsg,
++        hint: "Controleer je Anthropic API key op https://console.anthropic.com",
++      },
++      { status: 400 }
++    );
++  }
++}
+diff --git a/app/api/integrations/test/hubspot/route.ts b/app/api/integrations/test/hubspot/route.ts
+new file mode 100644
+index 0000000..10a6066
+--- /dev/null
++++ b/app/api/integrations/test/hubspot/route.ts
+@@ -0,0 +1,74 @@
++import { createClient } from "@supabase/supabase-js";
++
++const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
++const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
++
++if (!supabaseUrl || !supabaseServiceKey) {
++  throw new Error("Missing Supabase env vars");
++}
++
++const supabase = createClient(supabaseUrl, supabaseServiceKey);
++
++export async function POST(request: Request) {
++  try {
++    const body = await request.json() as { workspaceId: string };
++    const { workspaceId } = body;
++
++    if (!workspaceId) {
++      return Response.json({ error: "Missing workspaceId" }, { status: 400 });
++    }
++
++    // Fetch workspace config
++    const { data: workspace, error } = await supabase
++      .from("workspaces")
++      .select("config")
++      .eq("id", workspaceId)
++      .single();
++
++    if (error) {
++      return Response.json({ error: "Workspace not found" }, { status: 404 });
++    }
++
++    const apiKey = workspace?.config?.apiKeys?.hubspot;
++    if (!apiKey) {
++      return Response.json({ error: "HubSpot token not configured" }, { status: 400 });
++    }
++
++    // Test the HubSpot API key by fetching account info
++    const response = await fetch("https://api.hubapi.com/crm/v3/objects/companies?limit=1", {
++      headers: {
++        Authorization: `Bearer ${apiKey}`,
++        "Content-Type": "application/json",
++      },
++    });
++
++    if (!response.ok) {
++      const data = await response.json() as { message?: string };
++      return Response.json(
++        {
++          success: false,
++          error: data.message || "HubSpot API error - token might be invalid",
++          status: response.status,
++        },
++        { status: 400 }
++      );
++    }
++
++    return Response.json({
++      success: true,
++      provider: "hubspot",
++      message: "Verbonden met HubSpot",
++      configured: true,
++    });
++  } catch (err) {
++    const errorMsg = err instanceof Error ? err.message : "Unknown error";
++    return Response.json(
++      {
++        success: false,
++        error: errorMsg,
++        hint: "Controleer je HubSpot Private App token op https://app.hubspot.com/settings/apps",
++      },
++      { status: 400 }
++    );
++  }
++}
+diff --git a/app/api/integrations/test/openai/route.ts b/app/api/integrations/test/openai/route.ts
+new file mode 100644
+index 0000000..de10974
+--- /dev/null
++++ b/app/api/integrations/test/openai/route.ts
+@@ -0,0 +1,70 @@
++import { createClient } from "@supabase/supabase-js";
++import { callOpenAI } from "@/lib/automation/openai";
++
++const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
++const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
++
++if (!supabaseUrl || !supabaseServiceKey) {
++  throw new Error("Missing Supabase env vars");
++}
++
++const supabase = createClient(supabaseUrl, supabaseServiceKey);
++
++export async function POST(request: Request) {
++  try {
++    const body = await request.json() as { workspaceId: string };
++    const { workspaceId } = body;
++
++    if (!workspaceId) {
++      return Response.json({ error: "Missing workspaceId" }, { status: 400 });
++    }
++
++    // Fetch workspace config
++    const { data: workspace, error } = await supabase
++      .from("workspaces")
++      .select("config")
++      .eq("id", workspaceId)
++      .single();
++
++    if (error) {
++      return Response.json({ error: "Workspace not found" }, { status: 404 });
++    }
++
++    const apiKey = workspace?.config?.apiKeys?.openai;
++    if (!apiKey) {
++      return Response.json({ error: "OpenAI API key not configured" }, { status: 400 });
++    }
++
++    // Test the API key
++    const response = await callOpenAI(
++      apiKey,
++      "You are a helpful assistant.",
++      "Say 'API key works!' in Dutch.",
++      100
++    );
++
++    if (!response) {
++      return Response.json(
++        { error: "No response from OpenAI - key might be invalid" },
++        { status: 400 }
++      );
++    }
++
++    return Response.json({
++      success: true,
++      provider: "openai",
++      message: response,
++      configured: true,
++    });
++  } catch (err) {
++    const errorMsg = err instanceof Error ? err.message : "Unknown error";
++    return Response.json(
++      {
++        success: false,
++        error: errorMsg,
++        hint: "Controleer je API key en zorg dat deze actief is op openai.com",
++      },
++      { status: 400 }
++    );
++  }
++}
+diff --git a/app/api/integrations/test/route.ts b/app/api/integrations/test/route.ts
+new file mode 100644
+index 0000000..c92f9d1
+--- /dev/null
++++ b/app/api/integrations/test/route.ts
+@@ -0,0 +1,57 @@
++import { createClient } from "@supabase/supabase-js";
++import { callOpenAI } from "@/lib/automation/openai";
++
++const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
++const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
++
++if (!supabaseUrl || !supabaseServiceKey) {
++  throw new Error("Missing Supabase env vars");
++}
++
++const supabase = createClient(supabaseUrl, supabaseServiceKey);
++
++type Provider = "openai" | "anthropic" | "hubspot" | "lusha";
++
++export async function POST(request: Request) {
++  try {
++    const body = await request.json() as {
++      workspaceId: string;
++      provider?: Provider;
++    };
++
++    const { workspaceId } = body;
++
++    if (!workspaceId) {
++      return Response.json({ error: "Missing workspaceId" }, { status: 400 });
++    }
++
++    // Fetch workspace config
++    const { data: workspace, error } = await supabase
++      .from("workspaces")
++      .select("config")
++      .eq("id", workspaceId)
++      .single();
++
++    if (error) {
++      return Response.json({ error: "Workspace not found" }, { status: 404 });
++    }
++
++    const config = workspace?.config || {};
++
++    return Response.json({
++      success: true,
++      workspace: workspaceId,
++      configured: {
++        openai: !!config.apiKeys?.openai,
++        anthropic: !!config.apiKeys?.anthropic,
++        hubspot: !!config.apiKeys?.hubspot,
++        lusha: !!config.apiKeys?.lusha,
++      },
++    });
++  } catch (err) {
++    return Response.json(
++      { error: err instanceof Error ? err.message : "Unknown error" },
++      { status: 500 }
++    );
++  }
++}
+diff --git a/components/IntegrationCard.tsx b/components/IntegrationCard.tsx
+new file mode 100644
+index 0000000..ed90512
+--- /dev/null
++++ b/components/IntegrationCard.tsx
+@@ -0,0 +1,292 @@
++"use client";
++
++import { useState, useEffect } from "react";
++import { useApp } from "@/lib/store";
++import {
++  fetchWorkspaceConfig,
++  updateWorkspaceConfig,
++  clearConfigCache,
++} from "@/lib/workspace/config";
++import type { WorkspaceConfig } from "@/lib/types";
++
++interface Provider {
++  id: string;
++  name: string;
++  description: string;
++  icon: string;
++  keyField: string;
++  placeholder: string;
++  helpText: string;
++  testEndpoint?: string;
++}
++
++const PROVIDERS: Provider[] = [
++  {
++    id: "openai",
++    name: "OpenAI",
++    description: "Voor GPT-4 AI verrijking van leads",
++    icon: "🟢",
++    keyField: "openai",
++    placeholder: "sk-...",
++    helpText: "Je OpenAI API key van https://platform.openai.com/api-keys",
++    testEndpoint: "/api/integrations/test/openai",
++  },
++  {
++    id: "anthropic",
++    name: "Claude (Anthropic)",
++    description: "Voor Claude AI verrijking van leads",
++    icon: "🧠",
++    keyField: "anthropic",
++    placeholder: "sk-ant-...",
++    helpText: "Je Anthropic API key van https://console.anthropic.com",
++    testEndpoint: "/api/integrations/test/anthropic",
++  },
++  {
++    id: "hubspot",
++    name: "HubSpot",
++    description: "CRM synchronisatie & contact management",
++    icon: "🔵",
++    keyField: "hubspot",
++    placeholder: "pat-...",
++    helpText: "HubSpot Private App token van https://app.hubspot.com/settings/apps",
++    testEndpoint: "/api/integrations/test/hubspot",
++  },
++  {
++    id: "lusha",
++    name: "Lusha",
++    description: "Contactgegevens verrijking (email, telefoon)",
++    icon: "📧",
++    keyField: "lusha",
++    placeholder: "lu_...",
++    helpText: "Lusha API key van https://console.lusha.co",
++    testEndpoint: "/api/integrations/test/lusha",
++  },
++];
++
++interface Props {
++  provider: Provider;
++}
++
++export default function IntegrationCard({ provider }: Props) {
++  const { workspaceId } = useApp();
++  const [apiKey, setApiKey] = useState("");
++  const [isConfigured, setIsConfigured] = useState(false);
++  const [saving, setSaving] = useState(false);
++  const [testing, setTesting] = useState(false);
++  const [testResult, setTestResult] = useState<string | null>(null);
++  const [message, setMessage] = useState("");
++
++  useEffect(() => {
++    loadKey();
++  }, [workspaceId]);
++
++  async function loadKey() {
++    const config = await fetchWorkspaceConfig(workspaceId);
++    const key = config.apiKeys?.[provider.keyField as keyof typeof config.apiKeys];
++    if (key) {
++      setApiKey("••••" + key.slice(-4));
++      setIsConfigured(true);
++    }
++  }
++
++  async function handleSave(e: React.FormEvent) {
++    e.preventDefault();
++    setMessage("");
++    setSaving(true);
++
++    try {
++      // Only send if not masked (i.e., new value entered)
++      if (apiKey && !apiKey.startsWith("••••")) {
++        await updateWorkspaceConfig(workspaceId, {
++          apiKeys: {
++            [provider.keyField]: apiKey,
++          },
++        });
++        clearConfigCache(workspaceId);
++        setApiKey("••••" + apiKey.slice(-4));
++        setIsConfigured(true);
++        setMessage("✓ " + provider.name + " geconfigureerd");
++      } else if (!apiKey && isConfigured) {
++        setMessage("Geen wijzigingen opgeslagen");
++      } else {
++        setMessage("✓ Opgeslagen");
++      }
++
++      setTimeout(() => setMessage(""), 3000);
++    } catch (err) {
++      setMessage("✗ Fout: " + (err instanceof Error ? err.message : "Unknown"));
++    } finally {
++      setSaving(false);
++    }
++  }
++
++  async function handleTest() {
++    if (!isConfigured) {
++      setTestResult("Configureer eerst de API key");
++      return;
++    }
++
++    setTesting(true);
++    setTestResult(null);
++
++    try {
++      const response = await fetch(provider.testEndpoint!, {
++        method: "POST",
++        headers: { "Content-Type": "application/json" },
++        body: JSON.stringify({ workspaceId }),
++      });
++
++      if (response.ok) {
++        const data = await response.json();
++        setTestResult("✓ Verbinding succesvol!");
++      } else {
++        const data = await response.json();
++        setTestResult(
++          "✗ " + (data.error || "Verbinding mislukt, controleer je key")
++        );
++      }
++    } catch (err) {
++      setTestResult("✗ Fout bij testen: " + (err instanceof Error ? err.message : "Unknown"));
++    } finally {
++      setTesting(false);
++    }
++  }
++
++  async function handleRemove() {
++    if (!confirm("Zeker dat je deze integratie wilt verwijderen?")) return;
++
++    setSaving(true);
++    try {
++      await updateWorkspaceConfig(workspaceId, {
++        apiKeys: {
++          [provider.keyField]: undefined,
++        },
++      });
++      clearConfigCache(workspaceId);
++      setApiKey("");
++      setIsConfigured(false);
++      setMessage("✓ Integratie verwijderd");
++      setTimeout(() => setMessage(""), 3000);
++    } catch (err) {
++      setMessage("✗ Fout: " + (err instanceof Error ? err.message : "Unknown"));
++    } finally {
++      setSaving(false);
++    }
++  }
++
++  return (
++    <div
++      style={{
++        padding: 16,
++        border: "1px solid #ddd",
++        borderRadius: 8,
++        marginBottom: 12,
++        background: isConfigured ? "#f0fdf4" : "#fafafa",
++      }}
++    >
++      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 12 }}>
++        <span style={{ fontSize: 24 }}>{provider.icon}</span>
++        <div style={{ flex: 1 }}>
++          <h4 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>{provider.name}</h4>
++          <p style={{ margin: 0, fontSize: 13, color: "#666", marginTop: 2 }}>
++            {provider.description}
++          </p>
++        </div>
++        <span
++          style={{
++            padding: "4px 8px",
++            borderRadius: 4,
++            fontSize: 12,
++            fontWeight: 600,
++            background: isConfigured ? "#dcfce7" : "#f3f4f6",
++            color: isConfigured ? "#166534" : "#6b7280",
++          }}
++        >
++          {isConfigured ? "✓ Geconfigureerd" : "○ Niet geconfigureerd"}
++        </span>
++      </div>
++
++      <form onSubmit={handleSave}>
++        <div style={{ marginBottom: 12 }}>
++          <label style={{ fontSize: 13, fontWeight: 500, display: "block", marginBottom: 6 }}>
++            API Key / Token
++          </label>
++          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
++            <input
++              type="password"
++              className="form-input"
++              placeholder={provider.placeholder}
++              value={apiKey}
++              onChange={(e) => setApiKey(e.target.value)}
++              style={{ flex: 1, padding: "8px 12px" }}
++            />
++            {isConfigured && (
++              <button
++                type="button"
++                className="btn-secondary"
++                onClick={handleRemove}
++                disabled={saving}
++                style={{ padding: "8px 12px", whiteSpace: "nowrap" }}
++              >
++                Verwijder
++              </button>
++            )}
++          </div>
++          <p style={{ fontSize: 12, color: "#666", marginTop: 4 }}>
++            {provider.helpText}
++          </p>
++        </div>
++
++        <div style={{ display: "flex", gap: 8 }}>
++          <button
++            type="submit"
++            className="btn-primary"
++            disabled={saving}
++            style={{ padding: "8px 12px", fontSize: 13 }}
++          >
++            {saving ? "Opslaan..." : "Opslaan"}
++          </button>
++
++          {isConfigured && provider.testEndpoint && (
++            <button
++              type="button"
++              className="btn-secondary"
++              onClick={handleTest}
++              disabled={testing}
++              style={{ padding: "8px 12px", fontSize: 13 }}
++            >
++              {testing ? "Testen..." : "Test"}
++            </button>
++          )}
++        </div>
++
++        {message && (
++          <p
++            style={{
++              marginTop: 8,
++              fontSize: 13,
++              color: message.includes("✓") ? "#166534" : "#991b1b",
++            }}
++          >
++            {message}
++          </p>
++        )}
++
++        {testResult && (
++          <p
++            style={{
++              marginTop: 8,
++              fontSize: 13,
++              color: testResult.includes("✓") ? "#166534" : "#991b1b",
++              padding: 8,
++              background: testResult.includes("✓") ? "#f0fdf4" : "#fef2f2",
++              borderRadius: 4,
++            }}
++          >
++            {testResult}
++          </p>
++        )}
++      </form>
++    </div>
++  );
++}
+-- 
+2.43.0
+
+
+From 07cc95d1a1e36d4789d7cc33e573d0ce62e2db23 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Tue, 16 Jun 2026 11:48:11 +0000
+Subject: [PATCH 5/8] Add OAuth integration flows for LinkedIn & HubSpot
+
+- Create OAuth provider infrastructure (types, state management)
+- Implement /api/oauth/authorize endpoint for provider redirect
+- Implement /api/oauth/callback endpoint for token exchange
+- Store OAuth tokens securely in workspace config (JSONB)
+- Support token refresh and expiration tracking
+- Add OAuthIntegrationCard UI component
+- Show connection status and connected timestamp
+- Handle OAuth errors gracefully with user feedback
+- Support multiple OAuth providers (LinkedIn, HubSpot)
+- Add OAuth success/error messages to integrations page
+
+OAuth Flow:
+1. User clicks "Verbind via Provider"
+2. Redirect to provider authorization
+3. Provider redirects back to /api/oauth/callback
+4. Exchange code for token
+5. Store in workspace.config.oauth
+6. Return to integrations page with success message
+
+Environment variables needed:
+- LINKEDIN_CLIENT_ID / LINKEDIN_CLIENT_SECRET
+- HUBSPOT_CLIENT_ID / HUBSPOT_CLIENT_SECRET
+- NEXTAUTH_URL (for redirect URI)
+
+https://claude.ai/code/session_017bduQGW5noeKxit6G9d8eo
+---
+ app/(dashboard)/integrations-new/page.tsx |  69 ++++++++
+ app/api/oauth/authorize/route.ts          |  55 ++++++
+ app/api/oauth/callback/route.ts           | 185 ++++++++++++++++++++
+ components/OAuthIntegrationCard.tsx       | 198 ++++++++++++++++++++++
+ lib/oauth/types.ts                        |  53 ++++++
+ 5 files changed, 560 insertions(+)
+ create mode 100644 app/api/oauth/authorize/route.ts
+ create mode 100644 app/api/oauth/callback/route.ts
+ create mode 100644 components/OAuthIntegrationCard.tsx
+ create mode 100644 lib/oauth/types.ts
+
+diff --git a/app/(dashboard)/integrations-new/page.tsx b/app/(dashboard)/integrations-new/page.tsx
+index 1290167..a7d25bb 100644
+--- a/app/(dashboard)/integrations-new/page.tsx
++++ b/app/(dashboard)/integrations-new/page.tsx
+@@ -1,7 +1,11 @@
+ "use client";
+ 
++import { useEffect, useState } from "react";
++import { useSearchParams } from "next/navigation";
+ import { useAuth } from "@/lib/auth";
++import { useApp } from "@/lib/store";
+ import IntegrationCard from "@/components/IntegrationCard";
++import OAuthIntegrationCard from "@/components/OAuthIntegrationCard";
+ 
+ const PROVIDERS = [
+   {
+@@ -48,9 +52,48 @@ const PROVIDERS = [
+ 
+ export default function IntegrationsNewPage() {
+   const { user } = useAuth();
++  const { showToast } = useApp();
++  const searchParams = useSearchParams();
++  const [message, setMessage] = useState("");
++
++  useEffect(() => {
++    const oauthSuccess = searchParams.get("oauth_success");
++    const error = searchParams.get("error");
++    const errorDetail = searchParams.get("error_detail");
++
++    if (oauthSuccess) {
++      setMessage(`✓ ${oauthSuccess} verbonden!`);
++      showToast(`✓ ${oauthSuccess} succesvol gekoppeld!`);
++      setTimeout(() => setMessage(""), 5000);
++    } else if (error) {
++      const detail = errorDetail ? ` - ${errorDetail}` : "";
++      setMessage(`✗ Fout: ${error}${detail}`);
++      showToast(`✗ OAuth fout: ${error}`);
++      setTimeout(() => setMessage(""), 5000);
++    }
++  }, [searchParams, showToast]);
+ 
+   if (!user) return null;
+ 
++  const OAUTH_PROVIDERS = [
++    {
++      id: "linkedin",
++      name: "LinkedIn Sales Navigator",
++      description: "OAuth login & CSV export integratie",
++      icon: "🔗",
++      scopes: "r_liteprofile, r_emailaddress",
++      docs: "https://docs.microsoft.com/en-us/linkedin/shared/authentication/authentication",
++    },
++    {
++      id: "hubspot_oauth",
++      name: "HubSpot (OAuth)",
++      description: "Bidirectionele CRM sync zonder token",
++      icon: "🔵",
++      scopes: "crm.objects.companies, crm.objects.contacts",
++      docs: "https://developers.hubspot.com/docs/api/working-with-oauth",
++    },
++  ];
++
+   return (
+     <>
+       <div className="topbar">
+@@ -59,6 +102,22 @@ export default function IntegrationsNewPage() {
+       </div>
+ 
+       <div className="page-scroll">
++        {message && (
++          <div
++            style={{
++              padding: 12,
++              borderRadius: 6,
++              marginBottom: 16,
++              background: message.includes("✓") ? "#dcfce7" : "#fef2f2",
++              color: message.includes("✓") ? "#166534" : "#991b1b",
++              fontSize: 13,
++              fontWeight: 500,
++            }}
++          >
++            {message}
++          </div>
++        )}
++
+         <div className="card">
+           <div className="card-title">API Providers Configureren</div>
+           <div className="card-desc">
+@@ -86,6 +145,16 @@ export default function IntegrationsNewPage() {
+           )}
+         </div>
+ 
++        <div className="card">
++          <div className="card-title">OAuth Integraties</div>
++          <div className="card-desc">
++            Veilige verbindingen via OAuth - geen tokens opslaan nodig
++          </div>
++          {OAUTH_PROVIDERS.map((provider) => (
++            <OAuthIntegrationCard key={provider.id} provider={provider} />
++          ))}
++        </div>
++
+         <div className="card">
+           <div className="card-title">Binnenkort</div>
+           <div className="card-desc">Deze integraties komen eraan</div>
+diff --git a/app/api/oauth/authorize/route.ts b/app/api/oauth/authorize/route.ts
+new file mode 100644
+index 0000000..5d941a9
+--- /dev/null
++++ b/app/api/oauth/authorize/route.ts
+@@ -0,0 +1,55 @@
++import { NextRequest, NextResponse } from "next/server";
++
++export async function GET(request: NextRequest) {
++  const searchParams = request.nextUrl.searchParams;
++  const provider = searchParams.get("provider");
++  const workspaceId = searchParams.get("workspace_id");
++  const redirectTo = searchParams.get("redirect_to");
++
++  if (!provider || !workspaceId) {
++    return NextResponse.json(
++      { error: "Missing provider or workspace_id" },
++      { status: 400 }
++    );
++  }
++
++  const clientId =
++    provider === "linkedin"
++      ? process.env.LINKEDIN_CLIENT_ID
++      : provider === "hubspot_oauth"
++        ? process.env.HUBSPOT_CLIENT_ID
++        : null;
++
++  if (!clientId) {
++    return NextResponse.json(
++      { error: "Provider not configured" },
++      { status: 500 }
++    );
++  }
++
++  const state = Buffer.from(
++    JSON.stringify({
++      provider,
++      workspaceId,
++      redirectTo,
++      timestamp: Date.now(),
++    })
++  ).toString("base64");
++
++  const redirectUri = `${process.env.NEXTAUTH_URL || "http://localhost:3000"}/api/oauth/callback`;
++
++  const authUrls: Record<string, string> = {
++    linkedin: `https://www.linkedin.com/oauth/v2/authorization?response_type=code&client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&state=${state}&scope=r_liteprofile%20r_emailaddress`,
++    hubspot_oauth: `https://app.hubspot.com/oauth/authorize?client_id=${clientId}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=${encodeURIComponent("crm.objects.companies.read crm.objects.companies.write crm.objects.contacts.read crm.objects.contacts.write")}&state=${state}`,
++  };
++
++  const authUrl = authUrls[provider];
++  if (!authUrl) {
++    return NextResponse.json(
++      { error: "Invalid provider" },
++      { status: 400 }
++    );
++  }
++
++  return NextResponse.redirect(authUrl);
++}
+diff --git a/app/api/oauth/callback/route.ts b/app/api/oauth/callback/route.ts
+new file mode 100644
+index 0000000..20562ff
+--- /dev/null
++++ b/app/api/oauth/callback/route.ts
+@@ -0,0 +1,185 @@
++import { NextRequest, NextResponse } from "next/server";
++import { createClient } from "@supabase/supabase-js";
++import type { OAuthToken } from "@/lib/oauth/types";
++
++const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
++const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
++
++if (!supabaseUrl || !supabaseServiceKey) {
++  throw new Error("Missing Supabase env vars");
++}
++
++const supabase = createClient(supabaseUrl, supabaseServiceKey);
++
++interface StatePayload {
++  provider: string;
++  workspaceId: string;
++  redirectTo?: string;
++  timestamp: number;
++}
++
++function parseState(stateStr: string): StatePayload | null {
++  try {
++    const decoded = Buffer.from(stateStr, "base64").toString("utf-8");
++    return JSON.parse(decoded);
++  } catch {
++    return null;
++  }
++}
++
++async function exchangeCodeForToken(
++  provider: string,
++  code: string,
++  redirectUri: string
++): Promise<OAuthToken | null> {
++  const clientId =
++    provider === "linkedin"
++      ? process.env.LINKEDIN_CLIENT_ID
++      : provider === "hubspot_oauth"
++        ? process.env.HUBSPOT_CLIENT_ID
++        : null;
++
++  const clientSecret =
++    provider === "linkedin"
++      ? process.env.LINKEDIN_CLIENT_SECRET
++      : provider === "hubspot_oauth"
++        ? process.env.HUBSPOT_CLIENT_SECRET
++        : null;
++
++  if (!clientId || !clientSecret) {
++    console.error(`Missing OAuth credentials for ${provider}`);
++    return null;
++  }
++
++  const tokenUrl =
++    provider === "linkedin"
++      ? "https://www.linkedin.com/oauth/v2/accessToken"
++      : "https://api.hubapi.com/oauth/v1/token";
++
++  try {
++    const response = await fetch(tokenUrl, {
++      method: "POST",
++      headers: { "Content-Type": "application/x-www-form-urlencoded" },
++      body: new URLSearchParams({
++        grant_type: "authorization_code",
++        code,
++        redirect_uri: redirectUri,
++        client_id: clientId,
++        client_secret: clientSecret,
++      }).toString(),
++    });
++
++    if (!response.ok) {
++      console.error(`Token exchange failed: ${response.statusText}`);
++      return null;
++    }
++
++    const data = (await response.json()) as {
++      access_token?: string;
++      refresh_token?: string;
++      expires_in?: number;
++      scope?: string;
++      token_type?: string;
++    };
++
++    return {
++      provider,
++      accessToken: data.access_token || "",
++      refreshToken: data.refresh_token,
++      expiresAt: data.expires_in ? Date.now() + data.expires_in * 1000 : undefined,
++      scope: data.scope,
++      tokenType: data.token_type,
++    };
++  } catch (err) {
++    console.error("Token exchange error:", err);
++    return null;
++  }
++}
++
++export async function GET(request: NextRequest) {
++  const searchParams = request.nextUrl.searchParams;
++  const code = searchParams.get("code");
++  const state = searchParams.get("state");
++  const error = searchParams.get("error");
++  const errorDescription = searchParams.get("error_description");
++
++  // Handle OAuth errors
++  if (error) {
++    const returnUrl = new URL("/integrations-new?error=oauth_failed", request.url);
++    returnUrl.searchParams.set("error_detail", errorDescription || error);
++    return NextResponse.redirect(returnUrl);
++  }
++
++  if (!code || !state) {
++    return NextResponse.redirect(new URL("/integrations-new?error=missing_code", request.url));
++  }
++
++  const stateData = parseState(state);
++  if (!stateData) {
++    return NextResponse.redirect(new URL("/integrations-new?error=invalid_state", request.url));
++  }
++
++  // Verify state is recent (within 10 minutes)
++  if (Date.now() - stateData.timestamp > 10 * 60 * 1000) {
++    return NextResponse.redirect(new URL("/integrations-new?error=state_expired", request.url));
++  }
++
++  const { provider, workspaceId, redirectTo } = stateData;
++  const redirectUri = `${process.env.NEXTAUTH_URL || "http://localhost:3000"}/api/oauth/callback`;
++
++  // Exchange code for token
++  const token = await exchangeCodeForToken(provider, code, redirectUri);
++  if (!token) {
++    return NextResponse.redirect(
++      new URL("/integrations-new?error=token_exchange_failed", request.url)
++    );
++  }
++
++  // Save token to workspace config
++  const { data: workspace, error: fetchError } = await supabase
++    .from("workspaces")
++    .select("config")
++    .eq("id", workspaceId)
++    .single();
++
++  if (fetchError) {
++    return NextResponse.redirect(
++      new URL("/integrations-new?error=workspace_not_found", request.url)
++    );
++  }
++
++  const currentConfig = workspace?.config || {};
++  const updatedConfig = {
++    ...currentConfig,
++    oauth: {
++      ...(currentConfig.oauth || {}),
++      [provider]: {
++        accessToken: token.accessToken,
++        refreshToken: token.refreshToken,
++        expiresAt: token.expiresAt,
++        scope: token.scope,
++        tokenType: token.tokenType,
++        connectedAt: new Date().toISOString(),
++      },
++    },
++  };
++
++  const { error: updateError } = await supabase
++    .from("workspaces")
++    .update({ config: updatedConfig })
++    .eq("id", workspaceId);
++
++  if (updateError) {
++    return NextResponse.redirect(
++      new URL("/integrations-new?error=config_save_failed", request.url)
++    );
++  }
++
++  // Redirect back to integrations with success message
++  const returnUrl = new URL(
++    redirectTo || "/integrations-new",
++    request.url
++  );
++  returnUrl.searchParams.set("oauth_success", provider);
++  return NextResponse.redirect(returnUrl);
++}
+diff --git a/components/OAuthIntegrationCard.tsx b/components/OAuthIntegrationCard.tsx
+new file mode 100644
+index 0000000..b45f2eb
+--- /dev/null
++++ b/components/OAuthIntegrationCard.tsx
+@@ -0,0 +1,198 @@
++"use client";
++
++import { useState, useEffect } from "react";
++import { useApp } from "@/lib/store";
++import {
++  fetchWorkspaceConfig,
++  updateWorkspaceConfig,
++  clearConfigCache,
++} from "@/lib/workspace/config";
++import type { WorkspaceConfig } from "@/lib/types";
++
++interface OAuthProvider {
++  id: string;
++  name: string;
++  description: string;
++  icon: string;
++  scopes: string;
++  docs: string;
++}
++
++const OAUTH_PROVIDERS: OAuthProvider[] = [
++  {
++    id: "linkedin",
++    name: "LinkedIn Sales Navigator",
++    description: "OAuth login & CSV export integratie",
++    icon: "🔗",
++    scopes: "r_liteprofile, r_emailaddress",
++    docs: "https://docs.microsoft.com/en-us/linkedin/shared/authentication/authentication",
++  },
++  {
++    id: "hubspot_oauth",
++    name: "HubSpot (OAuth)",
++    description: "Bidirectionele CRM sync zonder token",
++    icon: "🔵",
++    scopes: "crm.objects.companies, crm.objects.contacts",
++    docs: "https://developers.hubspot.com/docs/api/working-with-oauth",
++  },
++];
++
++interface Props {
++  provider: OAuthProvider;
++}
++
++export default function OAuthIntegrationCard({ provider }: Props) {
++  const { workspaceId } = useApp();
++  const [isConnected, setIsConnected] = useState(false);
++  const [connecting, setConnecting] = useState(false);
++  const [connectedAt, setConnectedAt] = useState<string | null>(null);
++  const [message, setMessage] = useState("");
++
++  useEffect(() => {
++    loadStatus();
++  }, [workspaceId]);
++
++  async function loadStatus() {
++    const config = await fetchWorkspaceConfig(workspaceId);
++    const oauthData = (config.oauth as Record<string, any>)?.[provider.id];
++    if (oauthData?.accessToken) {
++      setIsConnected(true);
++      setConnectedAt(oauthData.connectedAt);
++    }
++  }
++
++  async function handleConnect() {
++    setConnecting(true);
++    setMessage("");
++
++    try {
++      const authUrl = `/api/oauth/authorize?provider=${provider.id}&workspace_id=${workspaceId}&redirect_to=/integrations-new`;
++      window.location.href = authUrl;
++    } catch (err) {
++      setMessage("✗ Fout bij verbinden: " + (err instanceof Error ? err.message : "Unknown"));
++      setConnecting(false);
++    }
++  }
++
++  async function handleDisconnect() {
++    if (!confirm("Zeker dat je deze verbinding wilt verbreken?")) return;
++
++    setConnecting(true);
++    try {
++      const config = await fetchWorkspaceConfig(workspaceId);
++      const oauth = config.oauth as Record<string, any> || {};
++      delete oauth[provider.id];
++
++      await updateWorkspaceConfig(workspaceId, { oauth });
++      clearConfigCache(workspaceId);
++
++      setIsConnected(false);
++      setConnectedAt(null);
++      setMessage("✓ Verbinding verbroken");
++      setTimeout(() => setMessage(""), 3000);
++    } catch (err) {
++      setMessage("✗ Fout: " + (err instanceof Error ? err.message : "Unknown"));
++    } finally {
++      setConnecting(false);
++    }
++  }
++
++  return (
++    <div
++      style={{
++        padding: 16,
++        border: "1px solid #ddd",
++        borderRadius: 8,
++        marginBottom: 12,
++        background: isConnected ? "#f0fdf4" : "#fafafa",
++      }}
++    >
++      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 12 }}>
++        <span style={{ fontSize: 24 }}>{provider.icon}</span>
++        <div style={{ flex: 1 }}>
++          <h4 style={{ margin: 0, fontSize: 16, fontWeight: 600 }}>{provider.name}</h4>
++          <p style={{ margin: 0, fontSize: 13, color: "#666", marginTop: 2 }}>
++            {provider.description}
++          </p>
++        </div>
++        <span
++          style={{
++            padding: "4px 8px",
++            borderRadius: 4,
++            fontSize: 12,
++            fontWeight: 600,
++            background: isConnected ? "#dcfce7" : "#f3f4f6",
++            color: isConnected ? "#166534" : "#6b7280",
++          }}
++        >
++          {isConnected ? "✓ Verbonden" : "○ Niet verbonden"}
++        </span>
++      </div>
++
++      <div style={{ marginBottom: 12 }}>
++        <p style={{ fontSize: 13, color: "#666", margin: "0 0 8px 0" }}>
++          Scopes: <code style={{ background: "#f3f4f6", padding: "2px 4px" }}>{provider.scopes}</code>
++        </p>
++        {connectedAt && (
++          <p style={{ fontSize: 12, color: "#999", margin: 0 }}>
++            Verbonden sinds {new Date(connectedAt).toLocaleString("nl-NL")}
++          </p>
++        )}
++      </div>
++
++      <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
++        {!isConnected ? (
++          <button
++            type="button"
++            className="btn-primary"
++            onClick={handleConnect}
++            disabled={connecting}
++            style={{ padding: "8px 16px", fontSize: 13 }}
++          >
++            {connecting ? "Verbinden..." : "Verbind via " + provider.name}
++          </button>
++        ) : (
++          <>
++            <button
++              type="button"
++              className="btn-secondary"
++              onClick={handleDisconnect}
++              disabled={connecting}
++              style={{ padding: "8px 16px", fontSize: 13 }}
++            >
++              Verbreek verbinding
++            </button>
++            <a
++              href={provider.docs}
++              target="_blank"
++              rel="noreferrer"
++              style={{
++                padding: "8px 16px",
++                borderRadius: 4,
++                fontSize: 13,
++                background: "#f3f4f6",
++                color: "#0066cc",
++                textDecoration: "none",
++                border: "1px solid #e5e7eb",
++              }}
++            >
++              Docs →
++            </a>
++          </>
++        )}
++      </div>
++
++      {message && (
++        <p
++          style={{
++            margin: 0,
++            fontSize: 13,
++            color: message.includes("✓") ? "#166534" : "#991b1b",
++          }}
++        >
++          {message}
++        </p>
++      )}
++    </div>
++  );
++}
+diff --git a/lib/oauth/types.ts b/lib/oauth/types.ts
+new file mode 100644
+index 0000000..5cf36c6
+--- /dev/null
++++ b/lib/oauth/types.ts
+@@ -0,0 +1,53 @@
++export interface OAuthProvider {
++  id: string;
++  name: string;
++  icon: string;
++  clientId: string;
++  clientSecret: string;
++  authorizationUrl: string;
++  tokenUrl: string;
++  revokeUrl?: string;
++  scopes: string[];
++  redirectUri: string;
++}
++
++export interface OAuthToken {
++  provider: string;
++  accessToken: string;
++  refreshToken?: string;
++  expiresAt?: number;
++  scope?: string;
++  tokenType?: string;
++}
++
++export interface OAuthSession {
++  provider: string;
++  state: string;
++  redirectTo?: string;
++  createdAt: number;
++}
++
++export const OAUTH_PROVIDERS: Record<string, Partial<OAuthProvider>> = {
++  linkedin: {
++    id: "linkedin",
++    name: "LinkedIn",
++    icon: "🔗",
++    authorizationUrl: "https://www.linkedin.com/oauth/v2/authorization",
++    tokenUrl: "https://www.linkedin.com/oauth/v2/accessToken",
++    revokeUrl: "https://www.linkedin.com/oauth/v2/revoke",
++    scopes: ["r_liteprofile", "r_emailaddress"],
++  },
++  hubspot_oauth: {
++    id: "hubspot_oauth",
++    name: "HubSpot (OAuth)",
++    icon: "🔵",
++    authorizationUrl: "https://app.hubspot.com/oauth/authorize",
++    tokenUrl: "https://api.hubapi.com/oauth/v1/token",
++    scopes: [
++      "crm.objects.companies.read",
++      "crm.objects.companies.write",
++      "crm.objects.contacts.read",
++      "crm.objects.contacts.write",
++    ],
++  },
++};
+-- 
+2.43.0
+
+
+From 94f49a97b6272f1f19cb7deb20d3d1658477d3c1 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Tue, 16 Jun 2026 11:48:11 +0000
+Subject: [PATCH 6/8] chore: update package-lock.json after dependencies
+ install
+
+https://claude.ai/code/session_017bduQGW5noeKxit6G9d8eo
+---
+ package-lock.json | 60 -----------------------------------------------
+ 1 file changed, 60 deletions(-)
+
+diff --git a/package-lock.json b/package-lock.json
+index 438efb2..59dd715 100644
+--- a/package-lock.json
++++ b/package-lock.json
+@@ -125,9 +125,6 @@
+       "cpu": [
+         "arm"
+       ],
+-      "libc": [
+-        "glibc"
+-      ],
+       "license": "LGPL-3.0-or-later",
+       "optional": true,
+       "os": [
+@@ -144,9 +141,6 @@
+       "cpu": [
+         "arm64"
+       ],
+-      "libc": [
+-        "glibc"
+-      ],
+       "license": "LGPL-3.0-or-later",
+       "optional": true,
+       "os": [
+@@ -163,9 +157,6 @@
+       "cpu": [
+         "ppc64"
+       ],
+-      "libc": [
+-        "glibc"
+-      ],
+       "license": "LGPL-3.0-or-later",
+       "optional": true,
+       "os": [
+@@ -182,9 +173,6 @@
+       "cpu": [
+         "riscv64"
+       ],
+-      "libc": [
+-        "glibc"
+-      ],
+       "license": "LGPL-3.0-or-later",
+       "optional": true,
+       "os": [
+@@ -201,9 +189,6 @@
+       "cpu": [
+         "s390x"
+       ],
+-      "libc": [
+-        "glibc"
+-      ],
+       "license": "LGPL-3.0-or-later",
+       "optional": true,
+       "os": [
+@@ -220,9 +205,6 @@
+       "cpu": [
+         "x64"
+       ],
+-      "libc": [
+-        "glibc"
+-      ],
+       "license": "LGPL-3.0-or-later",
+       "optional": true,
+       "os": [
+@@ -239,9 +221,6 @@
+       "cpu": [
+         "arm64"
+       ],
+-      "libc": [
+-        "musl"
+-      ],
+       "license": "LGPL-3.0-or-later",
+       "optional": true,
+       "os": [
+@@ -258,9 +237,6 @@
+       "cpu": [
+         "x64"
+       ],
+-      "libc": [
+-        "musl"
+-      ],
+       "license": "LGPL-3.0-or-later",
+       "optional": true,
+       "os": [
+@@ -277,9 +253,6 @@
+       "cpu": [
+         "arm"
+       ],
+-      "libc": [
+-        "glibc"
+-      ],
+       "license": "Apache-2.0",
+       "optional": true,
+       "os": [
+@@ -302,9 +275,6 @@
+       "cpu": [
+         "arm64"
+       ],
+-      "libc": [
+-        "glibc"
+-      ],
+       "license": "Apache-2.0",
+       "optional": true,
+       "os": [
+@@ -327,9 +297,6 @@
+       "cpu": [
+         "ppc64"
+       ],
+-      "libc": [
+-        "glibc"
+-      ],
+       "license": "Apache-2.0",
+       "optional": true,
+       "os": [
+@@ -352,9 +319,6 @@
+       "cpu": [
+         "riscv64"
+       ],
+-      "libc": [
+-        "glibc"
+-      ],
+       "license": "Apache-2.0",
+       "optional": true,
+       "os": [
+@@ -377,9 +341,6 @@
+       "cpu": [
+         "s390x"
+       ],
+-      "libc": [
+-        "glibc"
+-      ],
+       "license": "Apache-2.0",
+       "optional": true,
+       "os": [
+@@ -402,9 +363,6 @@
+       "cpu": [
+         "x64"
+       ],
+-      "libc": [
+-        "glibc"
+-      ],
+       "license": "Apache-2.0",
+       "optional": true,
+       "os": [
+@@ -427,9 +385,6 @@
+       "cpu": [
+         "arm64"
+       ],
+-      "libc": [
+-        "musl"
+-      ],
+       "license": "Apache-2.0",
+       "optional": true,
+       "os": [
+@@ -452,9 +407,6 @@
+       "cpu": [
+         "x64"
+       ],
+-      "libc": [
+-        "musl"
+-      ],
+       "license": "Apache-2.0",
+       "optional": true,
+       "os": [
+@@ -591,9 +543,6 @@
+       "cpu": [
+         "arm64"
+       ],
+-      "libc": [
+-        "glibc"
+-      ],
+       "license": "MIT",
+       "optional": true,
+       "os": [
+@@ -610,9 +559,6 @@
+       "cpu": [
+         "arm64"
+       ],
+-      "libc": [
+-        "musl"
+-      ],
+       "license": "MIT",
+       "optional": true,
+       "os": [
+@@ -629,9 +575,6 @@
+       "cpu": [
+         "x64"
+       ],
+-      "libc": [
+-        "glibc"
+-      ],
+       "license": "MIT",
+       "optional": true,
+       "os": [
+@@ -648,9 +591,6 @@
+       "cpu": [
+         "x64"
+       ],
+-      "libc": [
+-        "musl"
+-      ],
+       "license": "MIT",
+       "optional": true,
+       "os": [
+-- 
+2.43.0
+
+
+From c617fe12927ef93989f2e08ce05f211bb25e0c3a Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Tue, 16 Jun 2026 11:48:12 +0000
+Subject: [PATCH 7/8] Fix: Production build - migrate to
+ qualified/not_qualified status & fix dynamic routes
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Breaking changes:
+- Migrate lead status from 6-value pipeline (nieuw→verloren) to 2-value (qualified/not_qualified)
+- Simplify qualification scoring with aiQualificationScore field
+- Update statistics and funnel visualization for new status model
+
+Build fixes:
+- Mark API routes as force-dynamic to prevent build-time evaluation
+- Move Supabase client creation inside route handlers (defer until runtime)
+- Handle missing env vars gracefully in dynamic routes
+- Add oauth field to WorkspaceConfig type
+
+Files updated:
+- Status migration: lib/types.ts, components/LeadsGrid.tsx, LeadDetailPanel.tsx, pipeline/page.tsx
+- API routes: workspaces/[id]/config, oauth/authorize, oauth/callback, leads/find-via-ai, integrations/test/*
+- Statistics: LeadsPageContent.tsx (new qualified/not_qualified stats)
+- Settings: session start hook with environment validation
+
+Database migrations needed:
+- supabase/schema.sql: new workspace config JSONB, source field, ai_qualification_score
+
+https://claude.ai/code/session_017bduQGW5noeKxit6G9d8eo
+---
+ .claude/hooks/session-start.sh               | 77 ++++++++++++++++++++
+ .claude/settings.json                        | 14 ++++
+ app/(dashboard)/leads/LeadsPageContent.tsx   | 48 +++++-------
+ app/(dashboard)/pipeline/page.tsx            | 16 +---
+ app/api/integrations/test/anthropic/route.ts | 16 ++--
+ app/api/integrations/test/hubspot/route.ts   | 16 ++--
+ app/api/integrations/test/openai/route.ts    | 16 ++--
+ app/api/integrations/test/route.ts           | 18 +++--
+ app/api/leads/find-via-ai/route.ts           | 20 +++--
+ app/api/oauth/callback/route.ts              | 16 ++--
+ app/api/workspaces/[id]/config/route.ts      | 39 ++++++----
+ components/AddLeadModal.tsx                  |  2 +-
+ components/LinkedInImport.tsx                |  2 +-
+ lib/automation/batch-generator.ts            |  2 +-
+ lib/seed-data.ts                             | 20 ++---
+ lib/store.tsx                                |  2 +-
+ lib/types.ts                                 |  1 +
+ lib/utils/contacts.ts                        |  2 +-
+ lib/utils/csv-parser.ts                      |  2 +-
+ 19 files changed, 216 insertions(+), 113 deletions(-)
+ create mode 100755 .claude/hooks/session-start.sh
+ create mode 100644 .claude/settings.json
+
+diff --git a/.claude/hooks/session-start.sh b/.claude/hooks/session-start.sh
+new file mode 100755
+index 0000000..214296f
+--- /dev/null
++++ b/.claude/hooks/session-start.sh
+@@ -0,0 +1,77 @@
++#!/bin/bash
++set -euo pipefail
++
++# Lead Generation Tool - Session Start Hook
++# Installs dependencies and checks environment configuration
++
++echo "🚀 Lead Generation Tool - Starting session..."
++
++# Install npm dependencies if needed
++if [ ! -d "node_modules" ] || [ ! -f "node_modules/.package-lock.json" ]; then
++  echo "📦 Installing npm dependencies..."
++  npm install
++else
++  echo "✅ Dependencies already installed"
++fi
++
++# Check and report environment configuration
++echo ""
++echo "🔍 Environment Configuration Check:"
++echo "=================================="
++
++# Check for Supabase
++if [ -z "${NEXT_PUBLIC_SUPABASE_URL:-}" ]; then
++  echo "⚠️  NEXT_PUBLIC_SUPABASE_URL - NOT SET (required for Supabase)"
++else
++  echo "✅ NEXT_PUBLIC_SUPABASE_URL - SET"
++fi
++
++if [ -z "${NEXT_PUBLIC_SUPABASE_ANON_KEY:-}" ]; then
++  echo "⚠️  NEXT_PUBLIC_SUPABASE_ANON_KEY - NOT SET (required)"
++else
++  echo "✅ NEXT_PUBLIC_SUPABASE_ANON_KEY - SET"
++fi
++
++if [ -z "${SUPABASE_SERVICE_ROLE_KEY:-}" ]; then
++  echo "⚠️  SUPABASE_SERVICE_ROLE_KEY - NOT SET (required for server-side)"
++else
++  echo "✅ SUPABASE_SERVICE_ROLE_KEY - SET"
++fi
++
++# Check for AI providers
++if [ -z "${ANTHROPIC_API_KEY:-}" ] && [ -z "${OPENAI_API_KEY:-}" ]; then
++  echo "⚠️  No AI provider key found (ANTHROPIC_API_KEY or OPENAI_API_KEY)"
++else
++  if [ -n "${ANTHROPIC_API_KEY:-}" ]; then
++    echo "✅ ANTHROPIC_API_KEY - SET"
++  fi
++  if [ -n "${OPENAI_API_KEY:-}" ]; then
++    echo "✅ OPENAI_API_KEY - SET"
++  fi
++fi
++
++# Check for OAuth (optional)
++if [ -z "${LINKEDIN_CLIENT_ID:-}" ]; then
++  echo "ℹ️  LINKEDIN_CLIENT_ID - NOT SET (optional for OAuth)"
++else
++  echo "✅ LINKEDIN_CLIENT_ID - SET"
++fi
++
++if [ -z "${HUBSPOT_CLIENT_ID:-}" ]; then
++  echo "ℹ️  HUBSPOT_CLIENT_ID - NOT SET (optional for OAuth)"
++else
++  echo "✅ HUBSPOT_CLIENT_ID - SET"
++fi
++
++echo ""
++echo "=================================="
++echo "✅ Session ready!"
++echo ""
++echo "Next steps:"
++echo "1. Run: npm run dev       (start development server)"
++echo "2. Run: npm run build     (production build)"
++echo "3. Run: npm run lint      (check code quality)"
++echo ""
++echo "Missing required env vars? Add them to:"
++echo "- .env.local (local development)"
++echo "- Vercel project settings (production)"
+diff --git a/.claude/settings.json b/.claude/settings.json
+new file mode 100644
+index 0000000..e06b033
+--- /dev/null
++++ b/.claude/settings.json
+@@ -0,0 +1,14 @@
++{
++  "hooks": {
++    "SessionStart": [
++      {
++        "hooks": [
++          {
++            "type": "command",
++            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/session-start.sh"
++          }
++        ]
++      }
++    ]
++  }
++}
+diff --git a/app/(dashboard)/leads/LeadsPageContent.tsx b/app/(dashboard)/leads/LeadsPageContent.tsx
+index 9a05978..cd0a5f5 100644
+--- a/app/(dashboard)/leads/LeadsPageContent.tsx
++++ b/app/(dashboard)/leads/LeadsPageContent.tsx
+@@ -69,29 +69,23 @@ export default function LeadsPageContent() {
+ 
+   const stats = useMemo(() => {
+     const total = leads.length;
+-    const nieuw = leads.filter((p) => p.status === "nieuw").length;
+-    const verstuurd = leads.filter((p) => p.status === "verstuurd").length;
+-    const opvolgen = leads.filter((p) => p.status === "opvolgen").length;
+-    const gewonnen = leads.filter((p) => p.status === "gewonnen").length;
+-    const verloren = leads.filter((p) => p.status === "verloren").length;
+-    const bekeken = leads.filter((p) => p.status === "bekeken").length;
++    const qualified = leads.filter((p) => p.status === "qualified").length;
++    const notQualified = leads.filter((p) => p.status === "not_qualified").length;
+     const newBatch = leads.filter((p) => p.isNew).length;
+-    const conv = total ? Math.round((gewonnen / total) * 100) : 0;
+-    const maxFunnel = Math.max(nieuw + 3, verstuurd + 2, opvolgen + 1, gewonnen, 1);
++    const conv = total ? Math.round((qualified / total) * 100) : 0;
++    const maxFunnel = Math.max(notQualified + 1, qualified + 1, 1);
+     const funnelH = (n: number) => Math.max(8, Math.round((n / maxFunnel) * 36));
+     const latestBatch = leads.find((p) => p.isNew)?.batch ?? leads[0]?.batch;
+     return {
+       total,
+-      nieuw,
+-      verstuurd,
+-      opvolgen,
+-      gewonnen,
+-      verloren,
+-      bekeken,
++      qualified,
++      notQualified,
+       newBatch,
+       conv,
+       funnelH,
+       latestBatch,
++      nieuw: notQualified,
++      opvolgen: qualified,
+     };
+   }, [leads]);
+ 
+@@ -155,12 +149,8 @@ export default function LeadsPageContent() {
+   }
+ 
+   const funnelStages = [
+-    { label: "Nieuw", n: stats.nieuw, cls: "s1" },
+-    { label: "Bekeken", n: stats.bekeken, cls: "s2" },
+-    { label: "Verstuurd", n: stats.verstuurd, cls: "s3" },
+-    { label: "Opvolgen", n: stats.opvolgen, cls: "s4" },
+-    { label: "Gewonnen", n: stats.gewonnen, cls: "s4" },
+-    { label: "Verloren", n: stats.verloren, cls: "s5" },
++    { label: "Niet gekwalificeerd", n: stats.notQualified, cls: "s-not_qualified" },
++    { label: "Gekwalificeerd", n: stats.qualified, cls: "s-qualified" },
+   ];
+ 
+   const storageLabel =
+@@ -245,20 +235,20 @@ export default function LeadsPageContent() {
+             <div className="stat-delta">Account + 2 DMU contacten</div>
+           </div>
+           <div className="stat-card">
+-            <div className="stat-label">Nieuw</div>
+-            <div className="stat-value red">{stats.nieuw}</div>
+-            <div className="stat-delta">Nog te beoordelen</div>
++            <div className="stat-label">Gekwalificeerd</div>
++            <div className="stat-value green">{stats.qualified}</div>
++            <div className="stat-delta">Klaar voor outreach</div>
+           </div>
+           <div className="stat-card">
+-            <div className="stat-label">Op te volgen</div>
+-            <div className="stat-value orange">{stats.opvolgen}</div>
+-            <div className="stat-delta">Actie vereist</div>
++            <div className="stat-label">Niet gekwalificeerd</div>
++            <div className="stat-value red">{stats.notQualified}</div>
++            <div className="stat-delta">Geen match met ICP</div>
+           </div>
+           <div className="stat-card">
+-            <div className="stat-label">Conversie</div>
+-            <div className="stat-value green">{stats.conv}%</div>
++            <div className="stat-label">Kwalificatie %</div>
++            <div className="stat-value orange">{stats.conv}%</div>
+             <div className="stat-delta">
+-              {stats.gewonnen} van {stats.total} gewonnen
++              {stats.qualified} van {stats.total} gekwalificeerd
+             </div>
+           </div>
+           <div className="funnel-card">
+diff --git a/app/(dashboard)/pipeline/page.tsx b/app/(dashboard)/pipeline/page.tsx
+index dc001ee..e9e8718 100644
+--- a/app/(dashboard)/pipeline/page.tsx
++++ b/app/(dashboard)/pipeline/page.tsx
+@@ -7,12 +7,8 @@ import type { LeadStatus } from "@/lib/types";
+ import { scoreColor } from "@/lib/utils";
+ 
+ const COLUMNS: { status: LeadStatus; label: string; color: string }[] = [
+-  { status: "nieuw", label: "Nieuw", color: "#3b82f6" },
+-  { status: "bekeken", label: "Bekeken", color: "#a855f7" },
+-  { status: "verstuurd", label: "Verstuurd", color: "#f97316" },
+-  { status: "opvolgen", label: "Opvolgen", color: "#22c55e" },
+-  { status: "gewonnen", label: "Gewonnen", color: "#16a34a" },
+-  { status: "verloren", label: "Verloren", color: "#E30609" },
++  { status: "not_qualified", label: "Niet gekwalificeerd", color: "#ef4444" },
++  { status: "qualified", label: "Gekwalificeerd", color: "#22c55e" },
+ ];
+ 
+ export default function PipelinePage() {
+@@ -22,12 +18,8 @@ export default function PipelinePage() {
+ 
+   const grouped = useMemo(() => {
+     const map: Record<LeadStatus, typeof leads> = {
+-      nieuw: [],
+-      bekeken: [],
+-      verstuurd: [],
+-      opvolgen: [],
+-      gewonnen: [],
+-      verloren: [],
++      qualified: [],
++      not_qualified: [],
+     };
+     leads.forEach((l) => map[l.status].push(l));
+     return map;
+diff --git a/app/api/integrations/test/anthropic/route.ts b/app/api/integrations/test/anthropic/route.ts
+index 4acc838..61cb65f 100644
+--- a/app/api/integrations/test/anthropic/route.ts
++++ b/app/api/integrations/test/anthropic/route.ts
+@@ -1,15 +1,17 @@
+ import { createClient } from "@supabase/supabase-js";
+ 
+-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
++export const dynamic = "force-dynamic";
+ 
+-if (!supabaseUrl || !supabaseServiceKey) {
+-  throw new Error("Missing Supabase env vars");
+-}
++export async function POST(request: Request) {
++  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
++  const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+ 
+-const supabase = createClient(supabaseUrl, supabaseServiceKey);
++  if (!supabaseUrl || !supabaseServiceKey) {
++    return Response.json({ error: "Supabase not configured" }, { status: 500 });
++  }
++
++  const supabase = createClient(supabaseUrl, supabaseServiceKey);
+ 
+-export async function POST(request: Request) {
+   try {
+     const body = await request.json() as { workspaceId: string };
+     const { workspaceId } = body;
+diff --git a/app/api/integrations/test/hubspot/route.ts b/app/api/integrations/test/hubspot/route.ts
+index 10a6066..878ec24 100644
+--- a/app/api/integrations/test/hubspot/route.ts
++++ b/app/api/integrations/test/hubspot/route.ts
+@@ -1,15 +1,17 @@
+ import { createClient } from "@supabase/supabase-js";
+ 
+-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
++export const dynamic = "force-dynamic";
+ 
+-if (!supabaseUrl || !supabaseServiceKey) {
+-  throw new Error("Missing Supabase env vars");
+-}
++export async function POST(request: Request) {
++  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
++  const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+ 
+-const supabase = createClient(supabaseUrl, supabaseServiceKey);
++  if (!supabaseUrl || !supabaseServiceKey) {
++    return Response.json({ error: "Supabase not configured" }, { status: 500 });
++  }
++
++  const supabase = createClient(supabaseUrl, supabaseServiceKey);
+ 
+-export async function POST(request: Request) {
+   try {
+     const body = await request.json() as { workspaceId: string };
+     const { workspaceId } = body;
+diff --git a/app/api/integrations/test/openai/route.ts b/app/api/integrations/test/openai/route.ts
+index de10974..e646f8b 100644
+--- a/app/api/integrations/test/openai/route.ts
++++ b/app/api/integrations/test/openai/route.ts
+@@ -1,16 +1,18 @@
+ import { createClient } from "@supabase/supabase-js";
+ import { callOpenAI } from "@/lib/automation/openai";
+ 
+-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
++export const dynamic = "force-dynamic";
+ 
+-if (!supabaseUrl || !supabaseServiceKey) {
+-  throw new Error("Missing Supabase env vars");
+-}
++export async function POST(request: Request) {
++  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
++  const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+ 
+-const supabase = createClient(supabaseUrl, supabaseServiceKey);
++  if (!supabaseUrl || !supabaseServiceKey) {
++    return Response.json({ error: "Supabase not configured" }, { status: 500 });
++  }
++
++  const supabase = createClient(supabaseUrl, supabaseServiceKey);
+ 
+-export async function POST(request: Request) {
+   try {
+     const body = await request.json() as { workspaceId: string };
+     const { workspaceId } = body;
+diff --git a/app/api/integrations/test/route.ts b/app/api/integrations/test/route.ts
+index c92f9d1..797fb43 100644
+--- a/app/api/integrations/test/route.ts
++++ b/app/api/integrations/test/route.ts
+@@ -1,18 +1,20 @@
+ import { createClient } from "@supabase/supabase-js";
+ import { callOpenAI } from "@/lib/automation/openai";
+ 
+-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+-
+-if (!supabaseUrl || !supabaseServiceKey) {
+-  throw new Error("Missing Supabase env vars");
+-}
+-
+-const supabase = createClient(supabaseUrl, supabaseServiceKey);
++export const dynamic = "force-dynamic";
+ 
+ type Provider = "openai" | "anthropic" | "hubspot" | "lusha";
+ 
+ export async function POST(request: Request) {
++  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
++  const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
++
++  if (!supabaseUrl || !supabaseServiceKey) {
++    return Response.json({ error: "Supabase not configured" }, { status: 500 });
++  }
++
++  const supabase = createClient(supabaseUrl, supabaseServiceKey);
++
+   try {
+     const body = await request.json() as {
+       workspaceId: string;
+diff --git a/app/api/leads/find-via-ai/route.ts b/app/api/leads/find-via-ai/route.ts
+index 30f3e02..1dac50f 100644
+--- a/app/api/leads/find-via-ai/route.ts
++++ b/app/api/leads/find-via-ai/route.ts
+@@ -1,18 +1,12 @@
+ import { createClient } from "@supabase/supabase-js";
++export const dynamic = "force-dynamic";
+ import { getAiConfig } from "@/lib/automation/provider";
+ import { callOpenAI } from "@/lib/automation/openai";
+ import { LEGACY_SCALE_MODELS_ICP } from "@/lib/icp/legacy-scale-models";
+ import type { Lead } from "@/lib/types";
+ import { generateId } from "@/lib/utils";
+ 
+-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+ 
+-if (!supabaseUrl || !supabaseServiceKey) {
+-  throw new Error("Missing Supabase env vars");
+-}
+-
+-const supabase = createClient(supabaseUrl, supabaseServiceKey);
+ 
+ interface FindLeadsRequest {
+   workspaceId: string;
+@@ -137,6 +131,18 @@ Now generate the leads:`;
+ }
+ 
+ export async function POST(request: Request) {
++  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
++  const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
++
++  if (!supabaseUrl || !supabaseServiceKey) {
++    return Response.json(
++      { error: "Supabase not configured" },
++      { status: 500 }
++    );
++  }
++
++  const supabase = createClient(supabaseUrl, supabaseServiceKey);
++
+   try {
+     const body = (await request.json()) as FindLeadsRequest;
+     const {
+diff --git a/app/api/oauth/callback/route.ts b/app/api/oauth/callback/route.ts
+index 20562ff..1786bdf 100644
+--- a/app/api/oauth/callback/route.ts
++++ b/app/api/oauth/callback/route.ts
+@@ -1,15 +1,9 @@
+ import { NextRequest, NextResponse } from "next/server";
++export const dynamic = "force-dynamic";
+ import { createClient } from "@supabase/supabase-js";
+ import type { OAuthToken } from "@/lib/oauth/types";
+ 
+-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+ 
+-if (!supabaseUrl || !supabaseServiceKey) {
+-  throw new Error("Missing Supabase env vars");
+-}
+-
+-const supabase = createClient(supabaseUrl, supabaseServiceKey);
+ 
+ interface StatePayload {
+   provider: string;
+@@ -97,6 +91,14 @@ async function exchangeCodeForToken(
+ }
+ 
+ export async function GET(request: NextRequest) {
++  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
++  const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
++
++  if (!supabaseUrl || !supabaseServiceKey) {
++    return NextResponse.redirect(new URL("/integrations-new?error=supabase_not_configured", request.url));
++  }
++
++  const supabase = createClient(supabaseUrl, supabaseServiceKey);
+   const searchParams = request.nextUrl.searchParams;
+   const code = searchParams.get("code");
+   const state = searchParams.get("state");
+diff --git a/app/api/workspaces/[id]/config/route.ts b/app/api/workspaces/[id]/config/route.ts
+index 38e7679..d594f08 100644
+--- a/app/api/workspaces/[id]/config/route.ts
++++ b/app/api/workspaces/[id]/config/route.ts
+@@ -1,25 +1,28 @@
+ import { createClient } from "@supabase/supabase-js";
+ import type { WorkspaceConfig } from "@/lib/types";
+ 
+-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+-
+-if (!supabaseUrl || !supabaseServiceKey) {
+-  throw new Error("Missing Supabase env vars");
+-}
+-
+-const supabase = createClient(supabaseUrl, supabaseServiceKey);
++export const dynamic = "force-dynamic";
+ 
+ // GET /api/workspaces/[id]/config
+ export async function GET(
+   request: Request,
+-  { params }: { params: { id: string } }
++  { params }: { params: Promise<{ id: string }> }
+ ) {
++  const { id } = await params;
++  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
++  const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
++
++  if (!supabaseUrl || !supabaseServiceKey) {
++    return Response.json({ error: "Supabase not configured" }, { status: 500 });
++  }
++
++  const supabase = createClient(supabaseUrl, supabaseServiceKey);
++
+   try {
+     const { data, error } = await supabase
+       .from("workspaces")
+       .select("config")
+-      .eq("id", params.id)
++      .eq("id", id)
+       .single();
+ 
+     if (error) {
+@@ -42,8 +45,18 @@ export async function GET(
+ // POST /api/workspaces/[id]/config
+ export async function POST(
+   request: Request,
+-  { params }: { params: { id: string } }
++  { params }: { params: Promise<{ id: string }> }
+ ) {
++  const { id } = await params;
++  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
++  const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
++
++  if (!supabaseUrl || !supabaseServiceKey) {
++    return Response.json({ error: "Supabase not configured" }, { status: 500 });
++  }
++
++  const supabase = createClient(supabaseUrl, supabaseServiceKey);
++
+   try {
+     const body = (await request.json()) as WorkspaceConfig;
+ 
+@@ -74,7 +87,7 @@ export async function POST(
+     const { data: existing } = await supabase
+       .from("workspaces")
+       .select("config")
+-      .eq("id", params.id)
++      .eq("id", id)
+       .single();
+ 
+     const currentConfig = existing?.config || {};
+@@ -90,7 +103,7 @@ export async function POST(
+     const { data, error } = await supabase
+       .from("workspaces")
+       .update({ config: mergedConfig })
+-      .eq("id", params.id)
++      .eq("id", id)
+       .select("config")
+       .single();
+ 
+diff --git a/components/AddLeadModal.tsx b/components/AddLeadModal.tsx
+index a2ce893..5903309 100644
+--- a/components/AddLeadModal.tsx
++++ b/components/AddLeadModal.tsx
+@@ -35,7 +35,7 @@ export default function AddLeadModal({ onClose }: Props) {
+       fitReason: "",
+       website: "",
+       linkedinCompanyUrl: "",
+-      status: "nieuw",
++      status: "not_qualified",
+       notes: "",
+       linkedinUrl: form.linkedinUrl || "https://linkedin.com",
+       message:
+diff --git a/components/LinkedInImport.tsx b/components/LinkedInImport.tsx
+index cd1630f..3023d9f 100644
+--- a/components/LinkedInImport.tsx
++++ b/components/LinkedInImport.tsx
+@@ -80,7 +80,7 @@ export default function LinkedInImport({ onClose }: Props) {
+         contactName: lead.contactName!,
+         contactTitle: lead.contactTitle ?? "",
+         linkedinUrl: lead.linkedinUrl ?? "",
+-        status: lead.status ?? "nieuw",
++        status: lead.status ?? "not_qualified",
+         notes: lead.notes ?? "Geïmporteerd via LinkedIn Sales Navigator CSV",
+         message: lead.message ?? "",
+       });
+diff --git a/lib/automation/batch-generator.ts b/lib/automation/batch-generator.ts
+index d2a9a46..bf94dfa 100644
+--- a/lib/automation/batch-generator.ts
++++ b/lib/automation/batch-generator.ts
+@@ -148,7 +148,7 @@ export function draftsToLeads(
+       id: generateId(),
+       ...base,
+       linkedinUrl: `https://linkedin.com/search/results/companies/?keywords=${encodeURIComponent(d.company)}`,
+-      status: "nieuw" as const,
++      status: "not_qualified" as const,
+       batch: batchDate,
+       isNew: true,
+       notes: `[${sourceNote}] ${d.outreachAngle ?? ""}`.trim(),
+diff --git a/lib/seed-data.ts b/lib/seed-data.ts
+index 19a54b8..9fef213 100644
+--- a/lib/seed-data.ts
++++ b/lib/seed-data.ts
+@@ -13,7 +13,7 @@ const RAW_LEADS: Array<Partial<Lead> & Pick<Lead, "id" | "company" | "country" |
+     contactName: "Heiner Schröder",
+     contactTitle: "General Manager",
+     linkedinUrl: "https://linkedin.com/in/heiner-schroder",
+-    status: "nieuw",
++    status: "not_qualified",
+     batch: "2026-06-12",
+     isNew: false,
+     notes: "",
+@@ -30,7 +30,7 @@ const RAW_LEADS: Array<Partial<Lead> & Pick<Lead, "id" | "company" | "country" |
+     contactName: "Caroline Lenaerts",
+     contactTitle: "Marketing Comm. Manager EMEA",
+     linkedinUrl: "https://linkedin.com/in/caroline-lenaerts",
+-    status: "bekeken",
++    status: "not_qualified",
+     batch: "2026-06-12",
+     isNew: false,
+     notes: "LinkedIn profiel gevonden. Goed moment tijdens Agritechnica.",
+@@ -47,7 +47,7 @@ const RAW_LEADS: Array<Partial<Lead> & Pick<Lead, "id" | "company" | "country" |
+     contactName: "Ronald Slaats",
+     contactTitle: "Group Managing Director",
+     linkedinUrl: "https://linkedin.com/in/ronald-slaats",
+-    status: "verstuurd",
++    status: "qualified",
+     batch: "2026-06-12",
+     isNew: false,
+     notes: "Bericht verzonden via LinkedIn op 13 juni.",
+@@ -64,7 +64,7 @@ const RAW_LEADS: Array<Partial<Lead> & Pick<Lead, "id" | "company" | "country" |
+     contactName: "Julien Vanderhaeghe",
+     contactTitle: "COO",
+     linkedinUrl: "https://linkedin.com/in/julien-vanderhaeghe",
+-    status: "opvolgen",
++    status: "qualified",
+     batch: "2026-06-12",
+     isNew: false,
+     notes: "Heeft gereageerd, wil meer info over prijzen.",
+@@ -81,7 +81,7 @@ const RAW_LEADS: Array<Partial<Lead> & Pick<Lead, "id" | "company" | "country" |
+     contactName: "Ronald Slaats",
+     contactTitle: "CEO",
+     linkedinUrl: "https://linkedin.com/in/ronald-slaats-mechan",
+-    status: "gewonnen",
++    status: "qualified",
+     batch: "2026-06-12",
+     isNew: false,
+     notes: "Deal gesloten! 500 MF-modellen voor dealer gifting.",
+@@ -98,7 +98,7 @@ const RAW_LEADS: Array<Partial<Lead> & Pick<Lead, "id" | "company" | "country" |
+     contactName: "Lars Eriksen",
+     contactTitle: "General Manager",
+     linkedinUrl: "https://linkedin.com/company/akershus-traktor",
+-    status: "nieuw",
++    status: "not_qualified",
+     batch: "2026-06-13",
+     isNew: true,
+     notes: "",
+@@ -115,7 +115,7 @@ const RAW_LEADS: Array<Partial<Lead> & Pick<Lead, "id" | "company" | "country" |
+     contactName: "Peter de Boer",
+     contactTitle: "Commercial Director",
+     linkedinUrl: "https://linkedin.com/company/royal-de-boer",
+-    status: "nieuw",
++    status: "not_qualified",
+     batch: "2026-06-13",
+     isNew: true,
+     notes: "",
+@@ -132,7 +132,7 @@ const RAW_LEADS: Array<Partial<Lead> & Pick<Lead, "id" | "company" | "country" |
+     contactName: "Thomas Müller",
+     contactTitle: "Marketing Manager Agri Division",
+     linkedinUrl: "https://linkedin.com/company/baywa-ag",
+-    status: "verloren",
++    status: "not_qualified",
+     batch: "2026-06-13",
+     isNew: true,
+     notes: "Geen interesse op dit moment. Budget bevroren.",
+@@ -149,7 +149,7 @@ const RAW_LEADS: Array<Partial<Lead> & Pick<Lead, "id" | "company" | "country" |
+     contactName: "João Ferreira",
+     contactTitle: "Commercial Director",
+     linkedinUrl: "https://linkedin.com/company/agromais",
+-    status: "bekeken",
++    status: "not_qualified",
+     batch: "2026-06-13",
+     isNew: true,
+     notes: "",
+@@ -166,7 +166,7 @@ const RAW_LEADS: Array<Partial<Lead> & Pick<Lead, "id" | "company" | "country" |
+     contactName: "Anna Schmidt",
+     contactTitle: "Brand & Marketing Manager",
+     linkedinUrl: "https://linkedin.com/company/claas",
+-    status: "opvolgen",
++    status: "qualified",
+     batch: "2026-06-13",
+     isNew: true,
+     notes: "Doorverwezen naar Brand Partnerships team.",
+diff --git a/lib/store.tsx b/lib/store.tsx
+index 8f4b111..286d033 100644
+--- a/lib/store.tsx
++++ b/lib/store.tsx
+@@ -329,7 +329,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
+       contactName: "",
+       contactTitle: "",
+       linkedinUrl: "",
+-      status: "nieuw",
++      status: "not_qualified",
+       batch,
+       isNew: true,
+       notes: "",
+diff --git a/lib/types.ts b/lib/types.ts
+index 1c5ec83..bbc697a 100644
+--- a/lib/types.ts
++++ b/lib/types.ts
+@@ -116,6 +116,7 @@ export interface WorkspaceConfig {
+     hubspot?: string;
+     lusha?: string;
+   };
++  oauth?: Record<string, any>;
+   columns?: ColumnConfig[];
+   leadStatuses?: LeadStatus[];
+ }
+diff --git a/lib/utils/contacts.ts b/lib/utils/contacts.ts
+index ddc9e6f..0c881f5 100644
+--- a/lib/utils/contacts.ts
++++ b/lib/utils/contacts.ts
+@@ -70,7 +70,7 @@ export function normalizeLead(lead: Partial<Lead> & { id: string }): Lead {
+     contactName: lead.contactName ?? primary?.name ?? "",
+     contactTitle: lead.contactTitle ?? primary?.title ?? "",
+     linkedinUrl: lead.linkedinUrl ?? primary?.linkedinUrl ?? "",
+-    status: lead.status ?? "nieuw",
++    status: lead.status ?? "not_qualified",
+     batch: lead.batch ?? "",
+     isNew: lead.isNew ?? true,
+     notes: lead.notes ?? "",
+diff --git a/lib/utils/csv-parser.ts b/lib/utils/csv-parser.ts
+index 7c40ab4..90af139 100644
+--- a/lib/utils/csv-parser.ts
++++ b/lib/utils/csv-parser.ts
+@@ -145,7 +145,7 @@ export function parseLinkedInCSV(file: File): Promise<Partial<Lead>[]> {
+             linkedinUrl: row.linkedinUrl ?? "",
+             linkedinCompanyUrl: row.linkedinCompanyUrl ?? "",
+             website: row.website ?? "",
+-            status: "nieuw",
++            status: "not_qualified",
+             notes: "Geïmporteerd via LinkedIn Sales Navigator CSV",
+           });
+         }
+-- 
+2.43.0
+
+
+From 7feafc7c52d20b81fbe6c3f1cdac79c6708f765c Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Tue, 16 Jun 2026 14:22:39 +0000
+Subject: [PATCH 8/8] Improve navigation: link integrations page and add column
+ config to integrations
+
+---
+ app/(dashboard)/integrations-new/page.tsx |  3 +++
+ app/(dashboard)/settings/page.tsx         | 13 ++++++++-----
+ components/Sidebar.tsx                    |  2 +-
+ 3 files changed, 12 insertions(+), 6 deletions(-)
+
+diff --git a/app/(dashboard)/integrations-new/page.tsx b/app/(dashboard)/integrations-new/page.tsx
+index a7d25bb..c7dd2ef 100644
+--- a/app/(dashboard)/integrations-new/page.tsx
++++ b/app/(dashboard)/integrations-new/page.tsx
+@@ -6,6 +6,7 @@ import { useAuth } from "@/lib/auth";
+ import { useApp } from "@/lib/store";
+ import IntegrationCard from "@/components/IntegrationCard";
+ import OAuthIntegrationCard from "@/components/OAuthIntegrationCard";
++import ColumnConfigCard from "@/components/ColumnConfigCard";
+ 
+ const PROVIDERS = [
+   {
+@@ -193,6 +194,8 @@ export default function IntegrationsNewPage() {
+           </div>
+         </div>
+ 
++        <ColumnConfigCard />
++
+         <div className="card">
+           <div className="card-title">Help & Documentatie</div>
+           <div className="card-desc">Stap-voor-stap guides voor elke integratie</div>
+diff --git a/app/(dashboard)/settings/page.tsx b/app/(dashboard)/settings/page.tsx
+index 8a5351a..9b35ec3 100644
+--- a/app/(dashboard)/settings/page.tsx
++++ b/app/(dashboard)/settings/page.tsx
+@@ -1,12 +1,11 @@
+ "use client";
+ 
+ import { useEffect, useState } from "react";
++import Link from "next/link";
+ import { useRouter } from "next/navigation";
+ import { useAuth } from "@/lib/auth";
+ import { useApp } from "@/lib/store";
+ import { getIcpForWorkspace, getWorkspace } from "@/lib/workspace/context";
+-import ApiKeysCard from "@/components/ApiKeysCard";
+-import ColumnConfigCard from "@/components/ColumnConfigCard";
+ 
+ const PACKAGES = [
+   { credits: 50, price: "€49" },
+@@ -151,9 +150,13 @@ export default function SettingsPage() {
+           </div>
+         </div>
+ 
+-        <ApiKeysCard />
+-
+-        <ColumnConfigCard />
++        <div className="card">
++          <div className="card-title">Integraties en Kolommen</div>
++          <div className="card-desc">Beheer API providers, OAuth verbindingen en kolom instellingen</div>
++          <Link href="/integrations-new" className="btn-primary" style={{ display: "inline-block" }}>
++            → Ga naar Integraties
++          </Link>
++        </div>
+ 
+         <div className="card">
+           <div className="setting-row">
+diff --git a/components/Sidebar.tsx b/components/Sidebar.tsx
+index 3c74ca7..b6ddf0c 100644
+--- a/components/Sidebar.tsx
++++ b/components/Sidebar.tsx
+@@ -12,8 +12,8 @@ const NAV = [
+ ];
+ 
+ const ADMIN_NAV = [
++  { href: "/integrations-new", label: "Integraties" },
+   { href: "/settings", label: "Instellingen" },
+-  { href: "/integrations", label: "Integraties" },
+ ];
+ 
+ export default function Sidebar() {
+-- 
+2.43.0
+
