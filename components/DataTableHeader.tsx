@@ -1,5 +1,7 @@
 "use client";
 
+import { useRef, useEffect } from "react";
+
 interface DataTableHeaderProps {
   title: string;
   count: number;
@@ -21,7 +23,14 @@ export default function DataTableHeader({
   onSelectAll,
   actions,
 }: DataTableHeaderProps) {
+  const checkboxRef = useRef<HTMLInputElement>(null);
   const hasSelection = selectedCount > 0;
+
+  useEffect(() => {
+    if (checkboxRef.current) {
+      checkboxRef.current.indeterminate = selectedCount > 0 && selectedCount < count;
+    }
+  }, [selectedCount, count]);
 
   return (
     <div
@@ -38,9 +47,9 @@ export default function DataTableHeader({
     >
       <div style={{ display: "flex", alignItems: "center", gap: "12px" }}>
         <input
+          ref={checkboxRef}
           type="checkbox"
           checked={selectedCount === count && count > 0}
-          indeterminate={selectedCount > 0 && selectedCount < count}
           onChange={(e) => onSelectAll(e.target.checked)}
           style={{ cursor: "pointer" }}
           title={`${selectedCount > 0 ? "Deselecteer" : "Selecteer"} alle`}

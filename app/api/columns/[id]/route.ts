@@ -2,16 +2,19 @@ import { updateCustomColumn, deleteCustomColumn } from "@/lib/db/custom-columns"
 
 export const dynamic = "force-dynamic";
 
-export async function PATCH(request: Request, { params }: { params: { id: string } }) {
+export async function PATCH(
+  request: Request,
+  { params }: { params: Promise<{ id: string }> }
+) {
   try {
-    const columnId = params.id;
+    const { id } = await params;
     const updates = await request.json();
 
-    if (!columnId) {
+    if (!id) {
       return Response.json({ error: "Missing column ID" }, { status: 400 });
     }
 
-    const updated = await updateCustomColumn(columnId, updates);
+    const updated = await updateCustomColumn(id, updates);
 
     if (!updated) {
       return Response.json({ error: "Failed to update column" }, { status: 500 });
@@ -24,15 +27,18 @@ export async function PATCH(request: Request, { params }: { params: { id: string
   }
 }
 
-export async function DELETE(request: Request, { params }: { params: { id: string } }) {
+export async function DELETE(
+  request: Request,
+  { params }: { params: Promise<{ id: string }> }
+) {
   try {
-    const columnId = params.id;
+    const { id } = await params;
 
-    if (!columnId) {
+    if (!id) {
       return Response.json({ error: "Missing column ID" }, { status: 400 });
     }
 
-    const success = await deleteCustomColumn(columnId);
+    const success = await deleteCustomColumn(id);
 
     if (!success) {
       return Response.json({ error: "Failed to delete column" }, { status: 500 });

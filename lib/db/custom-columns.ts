@@ -23,7 +23,7 @@ export async function fetchCustomColumns(workspaceId: string): Promise<CustomCol
 
 export async function createCustomColumn(
   workspaceId: string,
-  column: Omit<CustomColumn, "id" | "createdAt" | "updatedAt">
+  column: Omit<CustomColumn, "id" | "createdAt" | "updatedAt" | "workspaceId">
 ): Promise<CustomColumn | null> {
   const supabase = createClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL || "",

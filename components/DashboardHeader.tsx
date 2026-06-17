@@ -48,28 +48,35 @@ export default function DashboardHeader({
         {actionButtons.length > 0 && (
           <div style={{ display: "flex", gap: "12px" }}>
             {actionButtons.map((btn, i) => {
-              const Component = btn.href ? Link : "button";
+              const buttonStyle = {
+                padding: "10px 16px",
+                background: btn.variant === "secondary" ? "#f0f0f0" : "#000",
+                color: btn.variant === "secondary" ? "#000" : "#fff",
+                border: btn.variant === "secondary" ? "1px solid #e5e7eb" : "none",
+                borderRadius: "6px",
+                fontSize: "13px",
+                fontWeight: 600 as const,
+                cursor: "pointer" as const,
+                textDecoration: "none" as const,
+                display: "inline-block" as const,
+              };
+
+              if (btn.href) {
+                return (
+                  <Link key={i} href={btn.href} style={buttonStyle}>
+                    {btn.label}
+                  </Link>
+                );
+              }
+
               return (
-                <Component
+                <button
                   key={i}
-                  href={btn.href}
                   onClick={btn.onClick}
-                  style={{
-                    padding: "10px 16px",
-                    background: btn.variant === "secondary" ? "#f0f0f0" : "#000",
-                    color: btn.variant === "secondary" ? "#000" : "#fff",
-                    border: btn.variant === "secondary" ? "1px solid #e5e7eb" : "none",
-                    borderRadius: "6px",
-                    fontSize: "13px",
-                    fontWeight: 600,
-                    cursor: "pointer",
-                    textDecoration: "none",
-                    display: "inline-block",
-                  }}
-                  as={Component as any}
+                  style={buttonStyle}
                 >
                   {btn.label}
-                </Component>
+                </button>
               );
             })}
           </div>
