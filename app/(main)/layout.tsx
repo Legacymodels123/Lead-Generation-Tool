@@ -1,10 +1,9 @@
 "use client";
 
-export const dynamic = "force-dynamic";
 
 import { useState, useEffect, Suspense } from "react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { useRouter, usePathname } from "next/navigation";
 import { useAuth } from "@/lib/auth";
 import { useApp } from "@/lib/store";
 
@@ -18,14 +17,21 @@ const MAIN_NAV = [
 ];
 
 function MainLayoutContent({ children }: { children: React.ReactNode }) {
+  const router = useRouter();
   const pathname = usePathname();
-  const { user, logout } = useAuth();
+  const { user, loading, logout } = useAuth();
   const { leads } = useApp();
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
 
-  if (!user) {
-    return null;
+  useEffect(() => {
+    if (!loading && !user) {
+      router.push("/login");
+    }
+  }, [user, loading, router]);
+
+  if (loading || !user) {
+    return <div style={{ padding: "24px", textAlign: "center" }}>Loading...</div>;
   }
 
   const qualifiedCount = leads.filter((l) => l.status === "qualified").length;
