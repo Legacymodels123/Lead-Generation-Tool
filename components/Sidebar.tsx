@@ -7,8 +7,7 @@ import { useApp } from "@/lib/store";
 
 const NAV = [
   { href: "/leads", label: "Leads", badge: "leads" as const },
-  { href: "/pipeline", label: "Pipeline" },
-  { href: "/batches", label: "Batches" },
+  { href: "/qualify", label: "AI Kwalificatie" },
 ];
 
 const ADMIN_NAV = [
@@ -24,7 +23,6 @@ export default function Sidebar() {
   if (!user) return null;
 
   const initial = user.name.charAt(0).toUpperCase();
-  const creditsLow = user.credits < 20;
 
   return (
     <aside className="sidebar">
@@ -42,11 +40,6 @@ export default function Sidebar() {
             <div className="logo-sub">Lead Intelligence</div>
           </div>
         </div>
-      </div>
-
-      <div className="credits-pill">
-        <div className="credits-label">Credits</div>
-        <div className={`credits-value${creditsLow ? " low" : ""}`}>{user.credits}</div>
       </div>
 
       <div className="sidebar-section">

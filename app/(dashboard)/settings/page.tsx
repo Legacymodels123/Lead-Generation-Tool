@@ -7,17 +7,10 @@ import { useAuth } from "@/lib/auth";
 import { useApp } from "@/lib/store";
 import { getIcpForWorkspace, getWorkspace } from "@/lib/workspace/context";
 
-const PACKAGES = [
-  { credits: 50, price: "€49" },
-  { credits: 150, price: "€129" },
-  { credits: 500, price: "€399" },
-];
-
 export default function SettingsPage() {
   const { user, logout, updateUser } = useAuth();
-  const { addCredits, workspaceId } = useApp();
+  const { workspaceId } = useApp();
   const router = useRouter();
-  const [selectedPkg, setSelectedPkg] = useState(PACKAGES[1]);
   const [name, setName] = useState(user?.name ?? "");
   const [company, setCompany] = useState(user?.company ?? "");
 
@@ -85,58 +78,6 @@ export default function SettingsPage() {
             </form>
           </div>
 
-          <div className="card">
-            <div className="card-title">Credits saldo</div>
-            <div className="card-desc">Huidig saldo: {user.credits} credits</div>
-            <div className="credit-packages">
-              {PACKAGES.map((pkg) => (
-                <div
-                  key={pkg.credits}
-                  className={`credit-package${selectedPkg.credits === pkg.credits ? " selected" : ""}`}
-                  onClick={() => setSelectedPkg(pkg)}
-                  role="button"
-                  tabIndex={0}
-                  onKeyDown={(e) => e.key === "Enter" && setSelectedPkg(pkg)}
-                >
-                  <div className="credit-package-amount">{pkg.credits}</div>
-                  <div className="credit-package-price">{pkg.price}</div>
-                </div>
-              ))}
-            </div>
-            <button
-              type="button"
-              className="btn-primary"
-              style={{ marginTop: 16, width: "100%" }}
-              onClick={handleBuyCredits}
-            >
-              Credits kopen (demo)
-            </button>
-          </div>
-        </div>
-
-        <div className="card">
-          <div className="card-title">Transactiegeschiedenis</div>
-          <div className="transaction-list">
-            {user.transactions.length === 0 && (
-              <p style={{ fontSize: 13, color: "#bbb" }}>Geen transacties.</p>
-            )}
-            {user.transactions.map((tx) => (
-              <div key={tx.id} className="transaction-item">
-                <div>
-                  <div style={{ fontWeight: 600 }}>{tx.description}</div>
-                  <div style={{ fontSize: 10, color: "#bbb", marginTop: 2 }}>
-                    {new Date(tx.createdAt).toLocaleString("nl-NL")}
-                  </div>
-                </div>
-                <div
-                  className={`transaction-amount${tx.amount >= 0 ? " positive" : " negative"}`}
-                >
-                  {tx.amount >= 0 ? "+" : ""}
-                  {tx.amount}
-                </div>
-              </div>
-            ))}
-          </div>
         </div>
 
         <div className="card">
