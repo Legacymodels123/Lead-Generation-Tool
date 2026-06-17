@@ -2,6 +2,9 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useApp } from "@/lib/store";
+import DashboardHeader from "@/components/DashboardHeader";
+import FilterBar from "@/components/FilterBar";
+import DataTableHeader from "@/components/DataTableHeader";
 import type { Lead } from "@/lib/types";
 
 export default function QualifyPage() {
@@ -9,10 +12,21 @@ export default function QualifyPage() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [running, setRunning] = useState(false);
   const [results, setResults] = useState<Map<string, { status: "qualified" | "not_qualified"; reason: string }>>(new Map());
+  const [search, setSearch] = useState("");
+  const [statusFilter, setStatusFilter] = useState<"alle" | "qualified" | "not_qualified">("not_qualified");
 
   const unqualified = useMemo(() => {
-    return leads.filter((l) => l.status === "not_qualified");
-  }, [leads]);
+    return leads
+      .filter((l) => {
+        const matchStatus = statusFilter === "alle" || l.status === statusFilter;
+        const matchSearch =
+          !search ||
+          l.company.toLowerCase().includes(search.toLowerCase()) ||
+          l.contactName.toLowerCase().includes(search.toLowerCase()) ||
+          l.market.toLowerCase().includes(search.toLowerCase());
+        return matchStatus && matchSearch;
+      });
+  }, [leads, statusFilter, search]);
 
   const toggleSelect = useCallback((id: string) => {
     setSelectedIds((prev) => {
@@ -75,22 +89,38 @@ export default function QualifyPage() {
 
   return (
     <>
-      <div className="topbar">
-        <span className="topbar-title">AI Kwalificatie</span>
-        <span className="topbar-sub">— Laat AI bepalen welke leads qualified zijn</span>
-      </div>
+      <DashboardHeader
+        title="AI Kwalificatie"
+        subtitle="Laat AI bepalen welke leads qualified zijn"
+        showStats={false}
+        actionButtons={[
+          {
+            label: running ? "AI denkt na..." : `Kwalificeer ${selectedIds.size}`,
+            onClick: runAiQualification,
+            variant: "primary",
+          },
+        ]}
+      />
 
-      <div className="content" style={{ padding: "20px" }}>
-        <div className="card">
-          <div className="card-title">Niet gekwalificeerde Leads</div>
-          <div className="card-desc">
-            Selecteer leads voor AI kwalificatie ({unqualified.length} beschikbaar)
-          </div>
-        </div>
+      <div style={{ padding: "0 20px 20px" }}>
+        <FilterBar
+          search={search}
+          onSearchChange={setSearch}
+          statusFilter={statusFilter}
+          onStatusChange={(status) => setStatusFilter(status as "alle" | "qualified" | "not_qualified")}
+        />
 
         {unqualified.length === 0 ? (
-          <div className="card">
-            <p style={{ textAlign: "center", color: "#999" }}>
+          <div
+            style={{
+              padding: "40px",
+              textAlign: "center",
+              border: "1px solid #e5e7eb",
+              borderRadius: "8px",
+              background: "#fafafa",
+            }}
+          >
+            <p style={{ fontSize: "14px", color: "#666" }}>
               ✓ Alle leads zijn al gekwalificeerd!
             </p>
           </div>
@@ -98,29 +128,39 @@ export default function QualifyPage() {
           <>
             <div
               style={{
-                display: "flex",
-                gap: "12px",
-                marginBottom: "16px",
+                border: "1px solid #e5e7eb",
+                borderRadius: "8px",
+                overflow: "hidden",
+                background: "#fff",
               }}
             >
-              <button
-                onClick={toggleSelectAll}
-                className="btn-secondary"
-                style={{ flex: 1 }}
-              >
-                {selectedIds.size === unqualified.length ? "Deselecteer alles" : "Selecteer alles"}
-              </button>
-              <button
-                onClick={runAiQualification}
-                disabled={running || selectedIds.size === 0}
-                className="btn-primary"
-                style={{ flex: 1 }}
-              >
-                {running ? "AI denkt na..." : `Kwalificeer ${selectedIds.size} leads`}
-              </button>
-            </div>
+              <DataTableHeader
+                title="Leads voor kwalificatie"
+                count={unqualified.length}
+                selectedCount={selectedIds.size}
+                onSelectAll={(selected) => {
+                  if (selected) {
+                    setSelectedIds(new Set(unqualified.map((l) => l.id)));
+                  } else {
+                    setSelectedIds(new Set());
+                  }
+                }}
+                actions={[
+                  {
+                    label: "Selecteer alles",
+                    onClick: toggleSelectAll,
+                    variant: "secondary",
+                  },
+                  {
+                    label: running ? "AI bezig" : "Kwalificeer geselecteerde",
+                    onClick: runAiQualification,
+                    disabled: selectedIds.size === 0 || running,
+                    loading: running,
+                  },
+                ]}
+              />
 
-            <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+              <div style={{ display: "flex", flexDirection: "column", gap: "0", borderTop: "1px solid #e5e7eb" }}>
               {unqualified.map((lead) => {
                 const result = results.get(lead.id);
                 const isSelected = selectedIds.has(lead.id);
@@ -129,16 +169,15 @@ export default function QualifyPage() {
                   <div
                     key={lead.id}
                     style={{
-                      padding: "12px",
-                      border: "1px solid #ddd",
-                      borderRadius: "6px",
+                      padding: "16px",
+                      borderBottom: "1px solid #e5e7eb",
                       background: result
                         ? result.status === "qualified"
-                          ? "#dcfce7"
+                          ? "#f0fdf4"
                           : "#fef2f2"
                         : isSelected
                           ? "#f0f9ff"
-                          : "#fafafa",
+                          : "#fff",
                       display: "flex",
                       gap: "12px",
                       alignItems: "flex-start",
@@ -149,31 +188,44 @@ export default function QualifyPage() {
                       checked={isSelected}
                       onChange={() => toggleSelect(lead.id)}
                       disabled={result !== undefined}
-                      style={{ marginTop: "2px" }}
+                      style={{ marginTop: "4px", cursor: result ? "not-allowed" : "pointer" }}
                     />
                     <div style={{ flex: 1 }}>
-                      <div style={{ fontWeight: 600 }}>{lead.company}</div>
-                      <div style={{ fontSize: "13px", color: "#666" }}>
-                        {lead.contactName && `${lead.contactName} • `}
-                        {lead.market} • {lead.employees} medewerkers
+                      <div style={{ fontSize: "14px", fontWeight: 600 }}>
+                        {lead.company}
+                      </div>
+                      <div style={{ fontSize: "12px", color: "#666", marginTop: "4px" }}>
+                        {lead.contactName && (
+                          <>
+                            <span>{lead.contactName}</span> •{" "}
+                          </>
+                        )}
+                        <span>{lead.market}</span> •{" "}
+                        <span>{lead.employees} medewerkers</span>
                       </div>
                       {result && (
                         <div
                           style={{
-                            marginTop: "8px",
-                            fontSize: "13px",
+                            marginTop: "12px",
+                            padding: "12px",
+                            fontSize: "12px",
                             color: result.status === "qualified" ? "#166534" : "#991b1b",
-                            fontStyle: "italic",
+                            background:
+                              result.status === "qualified"
+                                ? "#dcfce7"
+                                : "#fecaca",
+                            borderRadius: "4px",
+                            fontWeight: 500,
                           }}
                         >
-                          AI: {result.reason}
+                          <strong>AI Analyse:</strong> {result.reason}
                         </div>
                       )}
                     </div>
                     {result && (
                       <div
                         style={{
-                          padding: "4px 8px",
+                          padding: "6px 12px",
                           borderRadius: "4px",
                           fontSize: "12px",
                           fontWeight: 600,
@@ -190,6 +242,7 @@ export default function QualifyPage() {
                   </div>
                 );
               })}
+            </div>
             </div>
           </>
         )}
