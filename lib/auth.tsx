@@ -157,7 +157,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
               setUser(null);
             }
           });
-        } catch {
+        } catch (err) {
+          console.error("Supabase auth error:", err);
           refreshUser();
         }
       } else {
