@@ -28,10 +28,6 @@ export default function SettingsPage() {
     updateUser({ name: name.trim(), company: company.trim() });
   }
 
-  function handleBuyCredits() {
-    addCredits(selectedPkg.credits, `${selectedPkg.credits} credits gekocht (${selectedPkg.price})`);
-  }
-
   async function handleLogout() {
     await logout();
     router.push("/login");

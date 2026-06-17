@@ -56,14 +56,10 @@ export default function QualifyPage() {
 
       // Update leads based on AI results
       for (const result of data.results) {
-        const lead = leads.find((l) => l.id === result.leadId);
-        if (lead) {
-          updateLead({
-            ...lead,
-            status: result.status,
-            aiSummary: result.reason,
-          });
-        }
+        updateLead(result.leadId, {
+          status: result.status,
+          aiSummary: result.reason,
+        });
       }
 
       setResults(new Map(data.results.map((r: any) => [r.leadId, r])));
