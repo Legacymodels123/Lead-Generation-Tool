@@ -83,6 +83,11 @@ export default function LinkedInImport({ onClose }: Props) {
         status: lead.status ?? "not_qualified",
         notes: lead.notes ?? "Geïmporteerd via LinkedIn Sales Navigator CSV",
         message: lead.message ?? "",
+        batch: "import-linkedin",
+        isNew: true,
+        contacts: [],
+        score: 0,
+        source: "linkedin_import",
       });
 
       if (error) {
