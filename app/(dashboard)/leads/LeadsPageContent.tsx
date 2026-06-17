@@ -10,6 +10,7 @@ import AddLeadModal from "@/components/AddLeadModal";
 import LinkedInImport from "@/components/LinkedInImport";
 import FindLeadsViaAiModal from "@/components/FindLeadsViaAiModal";
 import LeadsGrid from "@/components/LeadsGrid";
+import DashboardHeader from "@/components/DashboardHeader";
 
 type Filter = LeadStatus | "alle";
 

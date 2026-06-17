@@ -8,6 +8,7 @@ import { useApp } from "@/lib/store";
 const NAV = [
   { href: "/leads", label: "Leads", badge: "leads" as const },
   { href: "/qualify", label: "AI Kwalificatie" },
+  { href: "/columns", label: "Kolommen" },
 ];
 
 const ADMIN_NAV = [
