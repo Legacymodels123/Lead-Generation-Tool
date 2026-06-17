@@ -6,6 +6,7 @@ import { useAuth } from "@/lib/auth";
 import { useApp } from "@/lib/store";
 import IntegrationCard from "@/components/IntegrationCard";
 import OAuthIntegrationCard from "@/components/OAuthIntegrationCard";
+import ColumnConfigCard from "@/components/ColumnConfigCard";
 
 const PROVIDERS = [
   {
@@ -192,6 +193,8 @@ export default function IntegrationsNewPage() {
             ))}
           </div>
         </div>
+
+        <ColumnConfigCard />
 
         <div className="card">
           <div className="card-title">Help & Documentatie</div>
