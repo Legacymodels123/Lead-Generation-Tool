@@ -1,5 +1,3 @@
-import { redirect } from "next/navigation";
-
 export default function MainPage() {
-  redirect("/companies");
+  return null;
 }
