@@ -2,9 +2,9 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { AuthProvider, useAuth } from "@/lib/auth";
+import { useAuth } from "@/lib/auth";
 
-function LoginForm() {
+export default function LoginPage() {
   const { user, loading, login, register } = useAuth();
   const router = useRouter();
   const [mode, setMode] = useState<"login" | "register">("login");
@@ -15,7 +15,7 @@ function LoginForm() {
   const [error, setError] = useState("");
 
   useEffect(() => {
-    if (!loading && user) router.replace("/leads");
+    if (!loading && user) router.replace("/companies");
   }, [user, loading, router]);
 
   async function handleSubmit(e: React.FormEvent) {
@@ -24,11 +24,11 @@ function LoginForm() {
     if (mode === "login") {
       const err = await login(email, password);
       if (err) setError(err);
-      else router.push("/leads");
+      else router.push("/companies");
     } else {
       const err = await register(name, email, password, company);
       if (err) setError(err);
-      else router.push("/leads");
+      else router.push("/companies");
     }
   }
 
@@ -149,13 +149,5 @@ function LoginForm() {
         </div>
       </div>
     </div>
-  );
-}
-
-export default function LoginPage() {
-  return (
-    <AuthProvider>
-      <LoginForm />
-    </AuthProvider>
   );
 }
