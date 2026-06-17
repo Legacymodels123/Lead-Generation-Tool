@@ -1,129 +1,119 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getAuthFromRequest } from "@/lib/auth-server";
-import {
-  batchToRow,
-  leadToRow,
-  loadLeadsWithContacts,
-  rowToBatch,
-  saveContactsForLead,
-  type BatchRow,
-  type LeadRow,
-} from "@/lib/data/leads-db";
-import { createAdminClient } from "@/lib/supabase/admin";
-import { SEED_LEADS } from "@/lib/seed-data";
-import type { Batch, Lead } from "@/lib/types";
-import { DEFAULT_WORKSPACE_ID } from "@/lib/types";
-import { normalizeLead } from "@/lib/utils/contacts";
-import { fitScore, generateId } from "@/lib/utils";
+import { getSessionUser, getLeads, createLead, updateLead } from "@/lib/server/store";
+import { generateId } from "@/lib/utils";
+import type { Lead } from "@/lib/types";
 
-function defaultBatches(userId: string): BatchRow[] {
-  return [
-    {
-      id: "batch-1",
-      user_id: userId,
-      workspace_id: DEFAULT_WORKSPACE_ID,
-      date: "2026-06-13",
-      label: "Nightly batch — 13 juni 2026",
-      lead_count: 5,
-      credits_used: 50,
-      created_at: "2026-06-13T02:00:00.000Z",
-    },
-    {
-      id: "batch-2",
-      user_id: userId,
-      workspace_id: DEFAULT_WORKSPACE_ID,
-      date: "2026-06-12",
-      label: "Nightly batch — 12 juni 2026",
-      lead_count: 5,
-      credits_used: 50,
-      created_at: "2026-06-12T02:00:00.000Z",
-    },
-  ];
-}
-
-async function seedIfEmpty(userId: string) {
-  const supabase = createAdminClient();
-  if (!supabase) return null;
-
-  const { count } = await supabase
-    .from("leads")
-    .select("*", { count: "exact", head: true })
-    .eq("user_id", userId);
-
-  if (count && count > 0) return supabase;
-
-  for (const seed of SEED_LEADS) {
-    const lead = normalizeLead({ ...seed, id: generateId() });
-    const row = leadToRow(lead, userId);
-    await supabase.from("leads").insert(row);
-    await saveContactsForLead(supabase, userId, lead);
-  }
-  await supabase.from("batches").insert(defaultBatches(userId));
-  return supabase;
-}
+export const dynamic = "force-dynamic";
 
 export async function GET(req: NextRequest) {
-  const auth = await getAuthFromRequest(req);
-  if (!auth) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  try {
+    const authHeader = req.headers.get("authorization");
+    const token = authHeader?.replace("Bearer ", "");
 
-  const supabase = await seedIfEmpty(auth.userId);
-  if (!supabase) {
-    return NextResponse.json({ error: "Cloud storage not configured" }, { status: 503 });
+    if (!token) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const user = getSessionUser(token);
+    if (!user || !user.workspaceId) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const leads = getLeads(user.workspaceId);
+    return NextResponse.json({ leads, batches: [] });
+  } catch (error) {
+    console.error("Get leads error:", error);
+    return NextResponse.json(
+      { error: "Internal server error" },
+      { status: 500 }
+    );
   }
-
-  const leads = await loadLeadsWithContacts(supabase, auth.userId);
-  const { data: batchRows } = await supabase
-    .from("batches")
-    .select("*")
-    .eq("user_id", auth.userId)
-    .order("created_at", { ascending: false });
-
-  return NextResponse.json({
-    leads,
-    batches: (batchRows as BatchRow[] | null)?.map(rowToBatch) ?? [],
-  });
 }
 
 export async function POST(req: NextRequest) {
-  const auth = await getAuthFromRequest(req);
-  if (!auth) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  try {
+    const authHeader = req.headers.get("authorization");
+    const token = authHeader?.replace("Bearer ", "");
 
-  const supabase = createAdminClient();
-  if (!supabase) {
-    return NextResponse.json({ error: "Cloud storage not configured" }, { status: 503 });
+    if (!token) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const user = getSessionUser(token);
+    if (!user || !user.workspaceId) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const body = await req.json();
+
+    const newLead: Lead = {
+      id: generateId(),
+      workspaceId: user.workspaceId || "default",
+      company: body.company || "",
+      country: body.country || "",
+      market: body.market || "",
+      employees: body.employees || 0,
+      revenue: body.revenue || "",
+      sector: body.sector || "",
+      fitReason: body.fitReason || "",
+      website: body.website || "",
+      linkedinCompanyUrl: body.linkedinCompanyUrl || "",
+      contactName: body.contactName || "",
+      contactTitle: body.contactTitle || "",
+      linkedinUrl: body.linkedinUrl || "",
+      status: "not_qualified",
+      batch: body.batch || "manual",
+      isNew: true,
+      notes: body.notes || "",
+      message: body.message || "",
+      score: 0,
+      source: "manual",
+      contacts: body.contacts || [],
+    };
+
+    createLead(newLead);
+    return NextResponse.json({ lead: newLead });
+  } catch (error) {
+    console.error("Create lead error:", error);
+    return NextResponse.json(
+      { error: "Internal server error" },
+      { status: 500 }
+    );
   }
-
-  const raw = (await req.json()) as Lead;
-  const lead = normalizeLead({ ...raw, score: raw.score ?? fitScore(raw) });
-  const row = leadToRow(lead, auth.userId);
-  const { data, error } = await supabase.from("leads").insert(row).select().single();
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 });
-  await saveContactsForLead(supabase, auth.userId, lead);
-  return NextResponse.json(await loadLeadsWithContacts(supabase, auth.userId).then((all) => all.find((l) => l.id === (data as LeadRow).id) ?? lead));
 }
 
 export async function PUT(req: NextRequest) {
-  const auth = await getAuthFromRequest(req);
-  if (!auth) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  try {
+    const authHeader = req.headers.get("authorization");
+    const token = authHeader?.replace("Bearer ", "");
 
-  const supabase = createAdminClient();
-  if (!supabase) {
-    return NextResponse.json({ error: "Cloud storage not configured" }, { status: 503 });
+    if (!token) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const user = getSessionUser(token);
+    if (!user) {
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
+    const body = await req.json();
+    const { leadId, ...updates } = body;
+
+    if (!leadId) {
+      return NextResponse.json({ error: "leadId required" }, { status: 400 });
+    }
+
+    const updated = updateLead(leadId, updates);
+    if (!updated) {
+      return NextResponse.json({ error: "Lead not found" }, { status: 404 });
+    }
+
+    return NextResponse.json({ lead: updated });
+  } catch (error) {
+    console.error("Update lead error:", error);
+    return NextResponse.json(
+      { error: "Internal server error" },
+      { status: 500 }
+    );
   }
-
-  const body = (await req.json()) as { leads: Lead[]; batches: Batch[] };
-  await supabase.from("contacts").delete().eq("user_id", auth.userId);
-  await supabase.from("leads").delete().eq("user_id", auth.userId);
-  await supabase.from("batches").delete().eq("user_id", auth.userId);
-
-  for (const l of body.leads) {
-    const lead = normalizeLead(l);
-    await supabase.from("leads").insert(leadToRow(lead, auth.userId));
-    await saveContactsForLead(supabase, auth.userId, lead);
-  }
-  if (body.batches.length) {
-    await supabase.from("batches").insert(body.batches.map((b) => batchToRow(b, auth.userId)));
-  }
-
-  return NextResponse.json({ ok: true });
 }
