@@ -6,6 +6,18 @@ export type AiStatus = "idle" | "running" | "done" | "error";
 
 export type DmuRole = "marketing_brand" | "ceo_owner";
 
+export type TeamMemberRole = "admin" | "member";
+
+export type IntegrationProvider = "linkedin" | "hubspot" | "salesnavigator";
+
+export type IntegrationStatus = "connected" | "pending" | "expired" | "error";
+
+export type CustomColumnType = "text" | "number" | "date" | "select" | "email" | "url";
+
+export type ImportExportJobType = "import" | "export";
+
+export type ImportExportStatus = "pending" | "processing" | "completed" | "failed";
+
 export type EnrichmentStatus = "idle" | "running" | "done" | "error";
 
 export type EmailConfidence = "low" | "medium" | "high";
@@ -169,3 +181,140 @@ export const STARTING_CREDITS = 100;
 export const NIGHTLY_BATCH_LEADS = 3;
 
 export const DEFAULT_WORKSPACE_ID = "legacy-scale-models";
+
+// ===== NEW TYPES FOR PHASE 1 & 2 =====
+
+export interface CustomColumn {
+  id: string;
+  workspaceId: string;
+  key: string;
+  label: string;
+  type: CustomColumnType;
+  visible: boolean;
+  order: number;
+  defaultValue?: string | number | boolean;
+  selectOptions?: string[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface TeamMember {
+  id: string;
+  workspaceId: string;
+  userId: string;
+  role: TeamMemberRole;
+  status: "active" | "invited" | "removed";
+  invitationToken?: string;
+  invitationExpiresAt?: string;
+  addedAt: string;
+  invitedBy?: string;
+  email?: string;
+  name?: string;
+}
+
+export interface WorkspaceSettings {
+  id: string;
+  workspaceId: string;
+  rateLimitMonthly: number;
+  apiQuota: number;
+  maxCustomColumns: number;
+  storageLimitGb: number;
+  maxTeamMembers: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface UsageAnalytics {
+  id: string;
+  workspaceId: string;
+  userId: string;
+  date: string;
+  leadsCreated: number;
+  leadsEnriched: number;
+  apiCallsUsed: number;
+  creditsSpent: number;
+  createdAt: string;
+}
+
+export interface IntegrationConnection {
+  id: string;
+  workspaceId: string;
+  userId: string;
+  provider: IntegrationProvider;
+  status: IntegrationStatus;
+  accessToken?: string;
+  refreshToken?: string;
+  scopes?: string;
+  expiresAt?: string;
+  lastSyncAt?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ColumnMapping {
+  id: string;
+  workspaceId: string;
+  sourceField: string;
+  targetColumnKey: string;
+  createdAt: string;
+}
+
+export interface ImportExportJob {
+  id: string;
+  workspaceId: string;
+  userId: string;
+  type: ImportExportJobType;
+  status: ImportExportStatus;
+  filePath?: string;
+  progress: number;
+  totalItems: number;
+  processedItems: number;
+  failedItems: number;
+  error?: string;
+  createdAt: string;
+  completedAt?: string;
+}
+
+export interface DMUNode {
+  id: string;
+  title: string;
+  name?: string;
+  email?: string;
+  linkedinUrl?: string;
+  role: DmuRole;
+  x: number;
+  y: number;
+  level?: number;
+}
+
+export interface DMUEdge {
+  from: string;
+  to: string;
+  type: "reports_to" | "collaborates_with" | "approves";
+}
+
+export interface DMUSketch {
+  id: string;
+  workspaceId: string;
+  leadId: string;
+  nodes: DMUNode[];
+  edges: DMUEdge[];
+  svgData?: string;
+  aiInsights?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface UsageStats {
+  leadsCreated: number;
+  leadsEnriched: number;
+  apiCallsUsed: number;
+  apiCallsLimit: number;
+  creditsSpent: number;
+  storageUsedGb: number;
+  storageLimit: number;
+  teamMembers: number;
+  teamMembersLimit: number;
+  customColumns: number;
+  customColumnsLimit: number;
+}
