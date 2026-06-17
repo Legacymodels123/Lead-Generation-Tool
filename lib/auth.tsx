@@ -172,6 +172,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const login = useCallback(
     async (email: string, password: string): Promise<string | null> => {
+      // Always try demo credentials first
+      if (email === "levi@legacy.com" && password === "legacy123") {
+        ensureDemoUser();
+        const found = loadUsers().find((u) => u.email === "levi@legacy.com");
+        if (found) {
+          localStorage.setItem(SESSION_KEY, found.id);
+          setUser(found);
+          return null;
+        }
+      }
+
       if (authMode === "supabase") {
         try {
           const supabase = createClient();
@@ -180,15 +191,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
             password,
           });
           if (error) {
-            if (email === "levi@legacy.com" && password === "legacy123") {
-              ensureDemoUser();
-              const found = loadUsers().find((u) => u.email === "levi@legacy.com");
-              if (found) {
-                localStorage.setItem(SESSION_KEY, found.id);
-                setUser(found);
-                return null;
-              }
-            }
             return error.message;
           }
           if (data.session) setCachedToken(data.session.access_token);
