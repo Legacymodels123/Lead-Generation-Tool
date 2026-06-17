@@ -30,6 +30,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [toast, setToast] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
+  const showToast = useCallback((msg: string) => {
+    setToast(msg);
+    setTimeout(() => setToast(null), 3000);
+  }, []);
+
   // Fetch leads from API
   const refetchLeads = useCallback(async () => {
     if (!token) {
@@ -54,17 +59,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
     } finally {
       setLoading(false);
     }
-  }, [token]);
+  }, [token, showToast]);
 
   // Fetch leads when token changes
   useEffect(() => {
     refetchLeads();
   }, [token, refetchLeads]);
-
-  const showToast = useCallback((msg: string) => {
-    setToast(msg);
-    setTimeout(() => setToast(null), 3000);
-  }, []);
 
   const updateLead = useCallback(
     async (id: string, updates: Partial<Lead>) => {
