@@ -47,7 +47,7 @@ export function getCellValue(leads: Lead[], rowKey: string, colId: string): stri
 }
 
 export interface GridWriters {
-  onUpdate: (id: string, updates: Partial<Lead>) => void;
+  onUpdate: (id: string, updates: Partial<Lead>, immediate?: boolean) => void;
   onUpdateContact: (leadId: string, contactId: string, updates: Partial<Contact>) => void;
 }
 
@@ -56,7 +56,8 @@ export function setCellValue(
   rowKey: string,
   colId: string,
   value: string,
-  writers: GridWriters
+  writers: GridWriters,
+  immediate = true
 ): void {
   const { leadId, contactId } = parseRowKey(rowKey);
   const lead = findLead(leads, leadId);
@@ -65,17 +66,17 @@ export function setCellValue(
   if (!contactId) {
     switch (colId) {
       case "company":
-        writers.onUpdate(leadId, { company: value });
+        writers.onUpdate(leadId, { company: value }, immediate);
         break;
       case "market":
-        writers.onUpdate(leadId, { market: value });
+        writers.onUpdate(leadId, { market: value }, immediate);
         break;
       case "fitReason":
-        writers.onUpdate(leadId, { fitReason: value });
+        writers.onUpdate(leadId, { fitReason: value }, immediate);
         break;
       case "status":
         if (value === "qualified" || value === "not_qualified") {
-          writers.onUpdate(leadId, { status: value as LeadStatus });
+          writers.onUpdate(leadId, { status: value as LeadStatus }, immediate);
         }
         break;
     }
