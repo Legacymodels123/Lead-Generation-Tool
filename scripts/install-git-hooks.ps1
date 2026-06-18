@@ -1,5 +1,5 @@
 # Installs repo git hooks (auto-push after commit).
-$root = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
+$root = Split-Path -Parent $PSScriptRoot
 $src = Join-Path $PSScriptRoot "hooks\post-commit"
 $dest = Join-Path $root ".git\hooks\post-commit"
 
