@@ -23,13 +23,13 @@ export default function AddLeadModal({ onClose }: Props) {
     message: "",
   });
 
-  function handleSubmit(e: React.FormEvent) {
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!form.company || !form.contactName) {
       setError("Bedrijf en contactpersoon zijn verplicht.");
       return;
     }
-    const err = addLead({
+    const err = await addLead({
       ...form,
       market: form.sector.includes("Agri") ? "Agri Machinery" : form.sector,
       fitReason: "",
@@ -41,6 +41,11 @@ export default function AddLeadModal({ onClose }: Props) {
       message:
         form.message ||
         `Hi ${form.contactName.split(" ")[0]}, ik ben Levi van Legacy Scale Models. We lanceren Universal Hobbies en Weise Toys — graag een korte kennismaking.`,
+      batch: "manual",
+      isNew: true,
+      contacts: [],
+      score: 0,
+      source: "manual",
     });
     if (err) setError(err);
     else onClose();

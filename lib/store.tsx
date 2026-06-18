@@ -5,602 +5,154 @@ import {
   useCallback,
   useContext,
   useEffect,
-  useMemo,
   useState,
   type ReactNode,
 } from "react";
-import { useAuth, getDataKey } from "./auth";
-import {
-  enrichLeadsCloud,
-  fetchCloudData,
-  fetchServiceStatus,
-  patchCloudLead,
-  postCloudLead,
-  recalculateCloudScores,
-  runAiColumnsCloud,
-  runBatchCloud,
-  saveCloudSnapshot,
-  syncHubSpotCloud,
-} from "./data/leads-client";
-import { SEED_LEADS } from "./seed-data";
-import type { Batch, Contact, CreditTransaction, Integrations, Lead, UserData } from "./types";
-import { DEFAULT_AI_COLUMNS, type AiColumnKey } from "./types/automation";
-import { CREDIT_COSTS, DEFAULT_WORKSPACE_ID, NIGHTLY_BATCH_LEADS } from "./types";
-import { normalizeLead, syncPrimaryContactFields, updateContactInLead } from "./utils/contacts";
-import { fitScore, generateId, todayBatchDate } from "./utils";
-
-export type StorageMode = "local" | "cloud" | "loading";
+import { useAuth } from "./auth";
+import type { Batch, Lead } from "./types";
 
 interface AppContextValue {
   leads: Lead[];
   batches: Batch[];
   toast: string | null;
-  storageMode: StorageMode;
-  workspaceId: string;
   showToast: (msg: string) => void;
   updateLead: (id: string, updates: Partial<Lead>) => void;
-  updateContact: (leadId: string, contactId: string, updates: Partial<Contact>) => void;
-  toggleExpand: (id: string) => void;
-  addLead: (lead: Omit<Lead, "id" | "score" | "batch" | "isNew" | "contacts" | "workspaceId">) => string | null;
-  addQuickRow: () => string | null;
-  recalculateScores: (ids: string[]) => Promise<string | null>;
-  runAiColumns: (ids: string[], columns?: AiColumnKey[]) => Promise<string | null>;
-  enrichLeads: (ids: string[]) => Promise<string | null>;
-  syncHubSpot: (ids: string[]) => Promise<string | null>;
-  runNightlyBatch: () => Promise<string | null>;
-  spendCredits: (amount: number, description: string) => boolean;
-  addCredits: (amount: number, description: string) => void;
-  updateIntegrations: (integrations: Integrations) => void;
+  addLead: (lead: Omit<Lead, "id" | "workspaceId">) => Promise<string | null>;
+  refetchLeads: () => Promise<void>;
 }
 
 const AppContext = createContext<AppContextValue | null>(null);
 
-function loadUserData(userId: string): UserData {
-  try {
-    const raw = localStorage.getItem(getDataKey(userId));
-    if (raw) {
-      const data = JSON.parse(raw) as UserData;
-      return {
-        leads: data.leads.map((l) => normalizeLead(l)),
-        batches: data.batches,
-      };
-    }
-  } catch {
-    /* ignore */
-  }
-  return {
-    leads: SEED_LEADS.map((l) => normalizeLead(l)),
-    batches: [
-      {
-        id: "batch-1",
-        date: "2026-06-13",
-        label: "Nightly batch — 13 juni 2026",
-        leadCount: 5,
-        creditsUsed: 50,
-        createdAt: "2026-06-13T02:00:00.000Z",
-      },
-      {
-        id: "batch-2",
-        date: "2026-06-12",
-        label: "Nightly batch — 12 juni 2026",
-        leadCount: 5,
-        creditsUsed: 50,
-        createdAt: "2026-06-12T02:00:00.000Z",
-      },
-    ],
-  };
-}
-
-function saveUserData(userId: string, data: UserData): void {
-  localStorage.setItem(getDataKey(userId), JSON.stringify(data));
-}
-
 export function AppProvider({ children }: { children: ReactNode }) {
-  const { user, updateUser } = useAuth();
+  const { token } = useAuth();
   const [leads, setLeads] = useState<Lead[]>([]);
   const [batches, setBatches] = useState<Batch[]>([]);
   const [toast, setToast] = useState<string | null>(null);
-  const [storageMode, setStorageMode] = useState<StorageMode>("loading");
-  const [cloudAvailable, setCloudAvailable] = useState(false);
-  const workspaceId = user?.workspaceId ?? DEFAULT_WORKSPACE_ID;
+  const [loading, setLoading] = useState(false);
 
   const showToast = useCallback((msg: string) => {
     setToast(msg);
-    setTimeout(() => setToast(null), 2500);
+    setTimeout(() => setToast(null), 3000);
   }, []);
 
-  useEffect(() => {
-    fetchServiceStatus()
-      .then((s) => setCloudAvailable(Boolean(s.cloud)))
-      .catch(() => setCloudAvailable(false));
-  }, []);
-
-  useEffect(() => {
-    if (!user) {
+  // Fetch leads from API
+  const refetchLeads = useCallback(async () => {
+    if (!token) {
       setLeads([]);
-      setBatches([]);
-      setStorageMode("loading");
       return;
     }
 
-    let cancelled = false;
+    try {
+      setLoading(true);
+      const response = await fetch("/api/leads", {
+        headers: { Authorization: `Bearer ${token}` },
+      });
 
-    async function load() {
-      setStorageMode("loading");
-      if (cloudAvailable) {
-        try {
-          const data = await fetchCloudData(user!.id);
-          if (!cancelled) {
-            setLeads(data.leads.map((l) => normalizeLead(l)));
-            setBatches(data.batches);
-            setStorageMode("cloud");
-          }
-          return;
-        } catch {
-          if (!cancelled) {
-            showToast("Cloud laden mislukt — controleer Supabase instellingen");
-          }
-        }
+      if (response.ok) {
+        const data = await response.json();
+        setLeads(data.leads || []);
+        setBatches(data.batches || []);
       }
-
-      const data = loadUserData(user!.id);
-      if (!cancelled) {
-        setLeads(data.leads);
-        setBatches(data.batches);
-        setStorageMode("local");
-      }
+    } catch (error) {
+      console.error("Failed to fetch leads:", error);
+      showToast("Failed to load leads");
+    } finally {
+      setLoading(false);
     }
+  }, [token, showToast]);
 
-    load();
-    return () => {
-      cancelled = true;
-    };
-  }, [user?.id, cloudAvailable, showToast]);
-
-  const persistLocal = useCallback(
-    (newLeads: Lead[], newBatches: Batch[]) => {
-      if (!user) return;
-      saveUserData(user.id, { leads: newLeads, batches: newBatches });
-    },
-    [user]
-  );
-
-  const persistAll = useCallback(
-    async (newLeads: Lead[], newBatches: Batch[]) => {
-      if (!user) return;
-      if (storageMode === "cloud") {
-        try {
-          await saveCloudSnapshot(user.id, newLeads, newBatches);
-        } catch {
-          showToast("Cloud opslaan mislukt — lokaal terugval");
-          persistLocal(newLeads, newBatches);
-        }
-      } else {
-        persistLocal(newLeads, newBatches);
-      }
-    },
-    [user, storageMode, persistLocal, showToast]
-  );
-
-  const addTransaction = useCallback(
-    (tx: CreditTransaction) => {
-      if (!user) return;
-      updateUser({
-        transactions: [tx, ...user.transactions],
-      });
-    },
-    [user, updateUser]
-  );
-
-  const spendCredits = useCallback(
-    (amount: number, description: string): boolean => {
-      if (!user) return false;
-      if (user.credits < amount) return false;
-      updateUser({ credits: user.credits - amount });
-      addTransaction({
-        id: generateId(),
-        type: "spend",
-        amount: -amount,
-        description,
-        createdAt: new Date().toISOString(),
-      });
-      return true;
-    },
-    [user, updateUser, addTransaction]
-  );
-
-  const addCredits = useCallback(
-    (amount: number, description: string) => {
-      if (!user) return;
-      updateUser({ credits: user.credits + amount });
-      addTransaction({
-        id: generateId(),
-        type: "purchase",
-        amount,
-        description,
-        createdAt: new Date().toISOString(),
-      });
-      showToast(`${amount} credits toegevoegd!`);
-    },
-    [user, updateUser, addTransaction, showToast]
-  );
+  // Fetch leads when token changes
+  useEffect(() => {
+    refetchLeads();
+  }, [token, refetchLeads]);
 
   const updateLead = useCallback(
-    (id: string, updates: Partial<Lead>) => {
-      setLeads((prev) => {
-        const next = prev.map((l) => {
-          if (l.id !== id) return l;
-          const merged = syncPrimaryContactFields(
-            normalizeLead({ ...l, ...updates, id })
-          );
-          return { ...merged, score: fitScore(merged) };
-        });
-        const updated = next.find((l) => l.id === id);
-        if (updated && user && storageMode === "cloud") {
-          patchCloudLead(user.id, id, updated).catch(() =>
-            showToast("Wijziging kon niet worden opgeslagen")
-          );
-        } else {
-          persistLocal(next, batches);
-        }
-        return next;
-      });
-    },
-    [batches, persistLocal, showToast, storageMode, user]
-  );
+    async (id: string, updates: Partial<Lead>) => {
+      if (!token) return;
 
-  const updateContact = useCallback(
-    (leadId: string, contactId: string, updates: Partial<Contact>) => {
-      setLeads((prev) => {
-        const next = prev.map((l) => {
-          if (l.id !== leadId) return l;
-          const merged = syncPrimaryContactFields(updateContactInLead(l, contactId, updates));
-          return { ...merged, score: fitScore(merged) };
+      try {
+        const response = await fetch("/api/leads", {
+          method: "PUT",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({ leadId: id, ...updates }),
         });
-        const updated = next.find((l) => l.id === leadId);
-        if (updated && user && storageMode === "cloud") {
-          patchCloudLead(user.id, leadId, updated).catch(() =>
-            showToast("Contact kon niet worden opgeslagen")
-          );
-        } else {
-          persistLocal(next, batches);
-        }
-        return next;
-      });
-    },
-    [batches, persistLocal, showToast, storageMode, user]
-  );
 
-  const toggleExpand = useCallback((id: string) => {
-    setLeads((prev) =>
-      prev.map((l) => (l.id === id ? { ...l, expanded: !l.expanded } : l))
-    );
-  }, []);
+        if (response.ok) {
+          // Update local state optimistically
+          setLeads((prev) =>
+            prev.map((lead) => (lead.id === id ? { ...lead, ...updates } : lead))
+          );
+          showToast("✓ Lead updated");
+        } else {
+          showToast("✗ Failed to update lead");
+        }
+      } catch (error) {
+        console.error("Failed to update lead:", error);
+        showToast("✗ Error updating lead");
+      }
+    },
+    [token, showToast]
+  );
 
   const addLead = useCallback(
-    (lead: Omit<Lead, "id" | "score" | "batch" | "isNew" | "contacts" | "workspaceId">): string | null => {
-      if (!user) return "Niet ingelogd.";
-      if (!spendCredits(CREDIT_COSTS.addLead, "Handmatige lead toegevoegd")) {
-        return `Onvoldoende credits. ${CREDIT_COSTS.addLead} credits vereist.`;
+    async (lead: Omit<Lead, "id" | "workspaceId">) => {
+      if (!token) {
+        showToast("✗ Not authenticated");
+        return null;
       }
-      const batch = todayBatchDate();
-      const newLead = normalizeLead({
-        ...lead,
-        id: generateId(),
-        workspaceId,
-        batch,
-        isNew: true,
-        score: fitScore({ ...lead, workspaceId }),
-      });
 
-      if (storageMode === "cloud") {
-        postCloudLead(user.id, newLead)
-          .then((saved) => setLeads((prev) => [normalizeLead(saved), ...prev]))
-          .catch(() => showToast("Lead kon niet in cloud worden opgeslagen"));
-      } else {
-        setLeads((prev) => {
-          const next = [newLead, ...prev];
-          persistLocal(next, batches);
-          return next;
+      try {
+        const response = await fetch("/api/leads", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify(lead),
         });
-      }
 
-      showToast("Lead toegevoegd!");
-      return null;
-    },
-    [user, batches, spendCredits, persistLocal, showToast, storageMode, workspaceId]
-  );
-
-  const addQuickRow = useCallback((): string | null => {
-    if (!user) return "Niet ingelogd.";
-    const batch = todayBatchDate();
-    const newLead = normalizeLead({
-      id: generateId(),
-      workspaceId,
-      company: "Nieuw bedrijf",
-      country: "Nederland",
-      market: "",
-      employees: 100,
-      revenue: "",
-      sector: "Agri Dealer",
-      fitReason: "",
-      website: "",
-      linkedinCompanyUrl: "",
-      contactName: "",
-      contactTitle: "",
-      linkedinUrl: "",
-      status: "not_qualified",
-      batch,
-      isNew: true,
-      notes: "",
-      message: "",
-      score: fitScore({ country: "Nederland", employees: 100, sector: "Agri Dealer", workspaceId }),
-    });
-
-    if (storageMode === "cloud") {
-      postCloudLead(user.id, newLead)
-        .then((saved) => setLeads((prev) => [normalizeLead(saved), ...prev]))
-        .catch(() => showToast("Rij kon niet in cloud worden opgeslagen"));
-    } else {
-      setLeads((prev) => {
-        const next = [newLead, ...prev];
-        persistLocal(next, batches);
-        return next;
-      });
-    }
-
-    showToast("Nieuwe rij toegevoegd");
-    return null;
-  }, [user, batches, persistLocal, showToast, storageMode, workspaceId]);
-
-  const recalculateScores = useCallback(
-    async (ids: string[]): Promise<string | null> => {
-      if (!user) return "Niet ingelogd.";
-      if (!ids.length) return "Selecteer minimaal één rij.";
-
-      if (storageMode === "cloud") {
-        try {
-          const updated = await recalculateCloudScores(user.id, ids);
-          setLeads((prev) => {
-            const map = new Map(updated.map((l) => [l.id, normalizeLead(l)]));
-            return prev.map((l) => map.get(l.id) ?? l);
-          });
-          showToast(`Score herberekend voor ${updated.length} leads`);
+        if (response.ok) {
+          const data = await response.json();
+          setLeads((prev) => [data.lead, ...prev]);
+          showToast("✓ Lead created");
+          return data.lead.id;
+        } else {
+          showToast("✗ Failed to create lead");
           return null;
-        } catch {
-          return "Automatisering mislukt.";
         }
-      }
-
-      setLeads((prev) => {
-        const idSet = new Set(ids);
-        const next = prev.map((l) =>
-          idSet.has(l.id) ? { ...l, score: fitScore(l) } : l
-        );
-        persistLocal(next, batches);
-        showToast(`Score herberekend voor ${ids.length} leads`);
-        return next;
-      });
-      return null;
-    },
-    [user, batches, persistLocal, showToast, storageMode]
-  );
-
-  const runAiColumns = useCallback(
-    async (ids: string[], columns: AiColumnKey[] = DEFAULT_AI_COLUMNS): Promise<string | null> => {
-      if (!user) return "Niet ingelogd.";
-      if (!ids.length) return "Selecteer minimaal één rij.";
-
-      const idSet = new Set(ids);
-      setLeads((prev) =>
-        prev.map((l) => (idSet.has(l.id) ? { ...l, aiStatus: "running" as const } : l))
-      );
-
-      try {
-        const snapshot = leads.filter((l) => idSet.has(l.id));
-        const updated = await runAiColumnsCloud(user.id, ids, columns, snapshot);
-
-        setLeads((prev) => {
-          const map = new Map(
-            updated.map((l) => [l.id, { ...normalizeLead(l), aiStatus: "done" as const }])
-          );
-          const next = prev.map((l) => map.get(l.id) ?? l);
-          if (storageMode !== "cloud") {
-            persistLocal(next, batches);
-          }
-          return next;
-        });
-
-        showToast(`AI kolommen ingevuld voor ${updated.length} leads`);
+      } catch (error) {
+        console.error("Failed to create lead:", error);
+        showToast("✗ Error creating lead");
         return null;
-      } catch (e) {
-        setLeads((prev) =>
-          prev.map((l) => (idSet.has(l.id) ? { ...l, aiStatus: "error" as const } : l))
-        );
-        return e instanceof Error ? e.message : "AI kolommen mislukt.";
       }
     },
-    [user, leads, batches, persistLocal, showToast, storageMode]
+    [token, showToast]
   );
 
-  const enrichLeads = useCallback(
-    async (ids: string[]): Promise<string | null> => {
-      if (!user) return "Niet ingelogd.";
-      if (!ids.length) return "Selecteer minimaal één rij.";
-
-      const cost = CREDIT_COSTS.enrich * ids.length;
-      if (!spendCredits(cost, `Verrijking (${ids.length} accounts)`)) {
-        return `Onvoldoende credits. ${cost} credits vereist.`;
-      }
-
-      const idSet = new Set(ids);
-      setLeads((prev) =>
-        prev.map((l) =>
-          idSet.has(l.id)
-            ? {
-                ...l,
-                contacts: l.contacts.map((c) => ({ ...c, enrichmentStatus: "running" as const })),
-              }
-            : l
-        )
-      );
-
-      try {
-        const snapshot = leads.filter((l) => idSet.has(l.id));
-        const { leads: updated, aiPowered } = await enrichLeadsCloud(user.id, ids, snapshot);
-
-        setLeads((prev) => {
-          const map = new Map(updated.map((l) => [l.id, normalizeLead(l)]));
-          const next = prev.map((l) => map.get(l.id) ?? l);
-          if (storageMode !== "cloud") {
-            persistLocal(next, batches);
-          }
-          return next;
-        });
-
-        showToast(
-          `Verrijkt: ${updated.length} accounts${aiPowered ? " (AI)" : " (fallback)"}`
-        );
-        return null;
-      } catch (e) {
-        return e instanceof Error ? e.message : "Verrijking mislukt.";
-      }
-    },
-    [user, leads, batches, persistLocal, showToast, spendCredits, storageMode]
+  return (
+    <AppContext.Provider
+      value={{
+        leads,
+        batches,
+        toast,
+        showToast,
+        updateLead,
+        addLead,
+        refetchLeads,
+      }}
+    >
+      {children}
+    </AppContext.Provider>
   );
-
-  const syncHubSpot = useCallback(
-    async (ids: string[]): Promise<string | null> => {
-      if (!user) return "Niet ingelogd.";
-      if (!ids.length) return "Selecteer minimaal één rij.";
-
-      const cost = CREDIT_COSTS.hubspotSync * ids.length;
-      if (!spendCredits(cost, `HubSpot sync (${ids.length} accounts)`)) {
-        return `Onvoldoende credits. ${cost} credits vereist.`;
-      }
-
-      try {
-        const snapshot = leads.filter((l) => ids.includes(l.id));
-        const { leads: updated, synced, failed } = await syncHubSpotCloud(
-          user.id,
-          ids,
-          snapshot
-        );
-
-        setLeads((prev) => {
-          const map = new Map(updated.map((l) => [l.id, normalizeLead(l)]));
-          const next = prev.map((l) => map.get(l.id) ?? l);
-          if (storageMode !== "cloud") {
-            persistLocal(next, batches);
-          }
-          return next;
-        });
-
-        updateUser({ integrations: { ...user.integrations, crm: true, hubspotConnected: true } });
-        showToast(`HubSpot: ${synced} gesynchroniseerd${failed ? `, ${failed} mislukt` : ""}`);
-        return failed && !synced ? "HubSpot sync gedeeltelijk mislukt" : null;
-      } catch (e) {
-        return e instanceof Error ? e.message : "HubSpot sync mislukt.";
-      }
-    },
-    [user, leads, batches, persistLocal, showToast, spendCredits, storageMode, updateUser]
-  );
-
-  const runNightlyBatch = useCallback(async (): Promise<string | null> => {
-    if (!user) return "Niet ingelogd.";
-    const cost = CREDIT_COSTS.nightlyBatch * NIGHTLY_BATCH_LEADS;
-    if (!spendCredits(cost, `Nightly batch (${NIGHTLY_BATCH_LEADS} leads)`)) {
-      return `Onvoldoende credits. ${cost} credits vereist voor een batch.`;
-    }
-
-    try {
-      const existingCompanies = leads.map((l) => l.company);
-      const result = await runBatchCloud(
-        user.id,
-        existingCompanies,
-        user.name,
-        NIGHTLY_BATCH_LEADS
-      );
-
-      const newLeads = result.leads.map((l) => normalizeLead({ ...l, workspaceId, isNew: true }));
-      const batch = result.batch;
-
-      setLeads((prev) => {
-        const cleared = prev.map((l) => ({ ...l, isNew: false }));
-        const next = [...newLeads, ...cleared];
-        const nextBatches = [batch, ...batches];
-        setBatches(nextBatches);
-        persistAll(next, nextBatches);
-        return next;
-      });
-
-      showToast(
-        `${newLeads.length} nieuwe leads (${result.source === "ai" ? "AI" : "templates"})!`
-      );
-      return null;
-    } catch (e) {
-      return e instanceof Error ? e.message : "Batch mislukt.";
-    }
-  }, [user, leads, batches, spendCredits, persistAll, showToast, workspaceId]);
-
-  const updateIntegrations = useCallback(
-    (integrations: Integrations) => {
-      updateUser({ integrations });
-      showToast("Integraties opgeslagen");
-    },
-    [updateUser, showToast]
-  );
-
-  const value = useMemo(
-    () => ({
-      leads,
-      batches,
-      toast,
-      storageMode,
-      workspaceId,
-      showToast,
-      updateLead,
-      updateContact,
-      toggleExpand,
-      addLead,
-      addQuickRow,
-      recalculateScores,
-      runAiColumns,
-      enrichLeads,
-      syncHubSpot,
-      runNightlyBatch,
-      spendCredits,
-      addCredits,
-      updateIntegrations,
-    }),
-    [
-      leads,
-      batches,
-      toast,
-      storageMode,
-      workspaceId,
-      showToast,
-      updateLead,
-      updateContact,
-      toggleExpand,
-      addLead,
-      addQuickRow,
-      recalculateScores,
-      runAiColumns,
-      enrichLeads,
-      syncHubSpot,
-      runNightlyBatch,
-      spendCredits,
-      addCredits,
-      updateIntegrations,
-    ]
-  );
-
-  return <AppContext.Provider value={value}>{children}</AppContext.Provider>;
 }
 
 export function useApp() {
   const ctx = useContext(AppContext);
-  if (!ctx) throw new Error("useApp must be used within AppProvider");
+  if (!ctx) {
+    throw new Error("useApp must be used within AppProvider");
+  }
   return ctx;
 }
