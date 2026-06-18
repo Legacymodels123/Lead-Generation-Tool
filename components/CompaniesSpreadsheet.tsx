@@ -398,7 +398,7 @@ export default function CompaniesSpreadsheet() {
           />
           Email
         </label>
-        <span className="sheet-hint">Shift+click range · Ctrl+C/V · drag corner to fill</span>
+        <span className="sheet-hint">Click · type · F2 edit · drag corner · Ctrl+C/V</span>
       </div>
 
       <div className="sheet-body">

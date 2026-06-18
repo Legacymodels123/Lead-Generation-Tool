@@ -86,11 +86,32 @@ export function moveCell(
   return null;
 }
 
+export function colIndexToLetter(index: number): string {
+  let result = "";
+  let n = index;
+  while (n >= 0) {
+    result = String.fromCharCode(65 + (n % 26)) + result;
+    n = Math.floor(n / 26) - 1;
+  }
+  return result;
+}
+
+export function getExcelRef(rows: NavRow[], cell: CellAddress): string {
+  const pos = findCellIndex(rows, cell);
+  if (!pos) return "";
+  return `${colIndexToLetter(pos.col)}${pos.row + 1}`;
+}
+
 export function focusGridCell(
   container: HTMLElement | null,
-  cell: CellAddress
+  cell: CellAddress,
+  editing = false
 ): HTMLElement | null {
   if (!container) return null;
+  if (!editing) {
+    container.focus();
+    return container;
+  }
   const td = container.querySelector(
     `td[data-row-key="${cell.rowKey}"][data-col-id="${cell.colId}"]`
   ) as HTMLElement | null;

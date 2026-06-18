@@ -6,23 +6,22 @@ import type { AiStatus } from "@/lib/types";
 import { getDmuRoleLabel } from "@/lib/dmu/roles";
 import { GRID_COLUMNS, type GridColumnDef } from "@/lib/grid-columns";
 import type { CellAddress } from "@/lib/grid-navigation";
+import { colIndexToLetter } from "@/lib/grid-navigation";
 import type { SortDir, SortField } from "@/lib/views";
 import { FLAGS, scoreColor } from "@/lib/utils";
 import { STATUS_LABELS } from "@/lib/types";
-import GridCell from "@/components/GridCell";
+import ExcelCell from "@/components/ExcelCell";
 import { useGridExcel } from "@/hooks/useGridExcel";
 
 function AiCellContent({ status, value }: { status?: AiStatus; value?: string }) {
   if (status === "running") {
     return (
       <span className="ai-status ai-running" title="AI running">
-        <span className="ai-spinner" /> Running
+        <span className="ai-spinner" /> ?
       </span>
     );
   }
-  if (status === "error") {
-    return <span className="ai-status ai-error">Error</span>;
-  }
+  if (status === "error") return <span className="ai-status ai-error">Error</span>;
   if (value) {
     return (
       <span className="ai-text" title={value}>
@@ -33,19 +32,8 @@ function AiCellContent({ status, value }: { status?: AiStatus; value?: string })
   return <span className="ai-empty">?</span>;
 }
 
-function confidenceBadge(confidence?: Contact["emailConfidence"], provider?: string) {
-  if (!confidence && !provider) return null;
-  const cls =
-    confidence === "high" ? "conf-high" : confidence === "medium" ? "conf-med" : "conf-low";
-  const label = provider ? `${provider}` : confidence;
-  return (
-    <span className={`conf-badge ${cls}`} title={provider}>
-      {label}
-    </span>
-  );
-}
-
 const STATUSES: LeadStatus[] = ["qualified", "not_qualified"];
+const STATUS_OPTIONS = STATUSES.map((s) => ({ value: s, label: STATUS_LABELS[s] }));
 
 export type ColumnAction =
   | "score"
@@ -91,7 +79,7 @@ function ColumnHeaderMenu({
   const sortIndicator = isSorted ? (sort!.dir === "asc" ? " ?" : " ?") : "";
 
   return (
-    <th className={col.className}>
+    <th className={`excel-header-cell ${col.className ?? ""}`}>
       <div className="col-header">
         {col.sortable ? (
           <button
@@ -107,12 +95,7 @@ function ColumnHeaderMenu({
         )}
         {col.automatable && (
           <div className="col-header-menu">
-            <button
-              type="button"
-              className="col-run-btn"
-              onClick={() => setOpen(!open)}
-              title="Run column"
-            >
+            <button type="button" className="col-run-btn" onClick={() => setOpen(!open)} title="Run">
               ?
             </button>
             {open && (
@@ -124,7 +107,7 @@ function ColumnHeaderMenu({
                     setOpen(false);
                   }}
                 >
-                  Run on selected / filtered rows
+                  Run on selection
                 </button>
               </div>
             )}
@@ -154,35 +137,54 @@ export default function LeadsGrid({
   onRowAction,
 }: Props) {
   const gridRef = useRef<HTMLDivElement>(null);
-  const writers = useMemo(
-    () => ({ onUpdate, onUpdateContact }),
-    [onUpdate, onUpdateContact]
-  );
-  const {
-    selectCell,
-    cellState,
-    onFillHandleMouseDown,
-    handleGridKeyDown,
-    bindInputKeys,
-    onCellFocus,
-  } = useGridExcel({ leads, visibleColumns, writers, gridRef });
+  const writers = useMemo(() => ({ onUpdate, onUpdateContact }), [onUpdate, onUpdateContact]);
 
-  const cp = (rowKey: string, colId: string) => ({
-    ...cellState(rowKey, colId),
-    onActivate: selectCell,
-    onFillHandleMouseDown,
-  });
+  const excel = useGridExcel({ leads, visibleColumns, writers, gridRef });
 
-  const bind = (cell: CellAddress) => ({
-    onFocus: () => onCellFocus(cell),
-    onKeyDown: bindInputKeys(cell),
-  });
+  const ec = (
+    rowKey: string,
+    colId: string,
+    value: string,
+    opts?: {
+      type?: "text" | "select";
+      options?: { value: string; label: string }[];
+      displayValue?: string;
+      prefix?: React.ReactNode;
+      className?: string;
+    }
+  ) => {
+    const cell: CellAddress = { rowKey, colId };
+    const editing = excel.isEditing(cell);
+    return (
+      <ExcelCell
+        key={colId}
+        cell={cell}
+        value={editing ? excel.editDraft : value}
+        displayValue={opts?.displayValue}
+        type={opts?.type}
+        options={opts?.options}
+        prefix={opts?.prefix}
+        className={opts?.className}
+        {...excel.cellState(rowKey, colId)}
+        isEditing={editing}
+        onSelect={excel.selectCell}
+        onStartEdit={excel.startEdit}
+        onDraftChange={excel.setEditDraft}
+        onCommit={excel.commitEdit}
+        onCancel={excel.cancelEdit}
+        onInputKeyDown={excel.bindInputKeys}
+        onFillHandleMouseDown={excel.onFillHandleMouseDown}
+        onDragStart={excel.onDragStart}
+        onDragEnter={excel.onDragEnter}
+      />
+    );
+  };
 
   const allSelected = leads.length > 0 && leads.every((l) => selectedIds.has(l.id));
   const cols = visibleColumns
     .map((id) => GRID_COLUMNS.find((c) => c.id === id))
     .filter((c): c is GridColumnDef => Boolean(c));
-  const colSpan = 2 + cols.length;
+  const colSpan = 3 + cols.length;
 
   function renderAccountCell(colId: string, lead: Lead) {
     const score = lead.score ?? 0;
@@ -192,56 +194,26 @@ export default function LeadsGrid({
 
     switch (colId) {
       case "company":
-        return (
-          <GridCell key={colId} rowKey={rowKey} colId={colId} {...cp(rowKey, colId)}>
-            <div className="company-cell">
-              <span className="company-flag">{FLAGS[lead.country] ?? "??"}</span>
-              <input
-                className="grid-input grid-input-bold"
-                value={lead.company}
-                {...bind({ rowKey, colId })}
-                onChange={(e) => onUpdate(lead.id, { company: e.target.value })}
-              />
-            </div>
-          </GridCell>
-        );
+        return ec(lead.id, colId, lead.company, {
+          className: "excel-cell-bold",
+          prefix: <span className="company-flag">{FLAGS[lead.country] ?? "??"}</span>,
+        });
       case "market":
-        return (
-          <GridCell key={colId} rowKey={rowKey} colId={colId} {...cp(rowKey, colId)}>
-            <input
-              className="grid-input"
-              value={lead.market}
-              placeholder="Market"
-              {...bind({ rowKey, colId })}
-              onChange={(e) => onUpdate(lead.id, { market: e.target.value })}
-            />
-          </GridCell>
-        );
+        return ec(rowKey, colId, lead.market);
       case "fitReason":
-        return (
-          <GridCell key={colId} rowKey={rowKey} colId={colId} {...cp(rowKey, colId)}>
-            <input
-              className="grid-input grid-fit"
-              value={lead.fitReason}
-              placeholder="Why fit?"
-              title={lead.fitReason}
-              {...bind({ rowKey, colId })}
-              onChange={(e) => onUpdate(lead.id, { fitReason: e.target.value })}
-            />
-          </GridCell>
-        );
+        return ec(rowKey, colId, lead.fitReason);
       case "dmu":
         return (
-          <td key={colId} onClick={() => onSelectRow(lead.id)}>
+          <td key={colId} className="excel-readonly" onClick={() => onSelectRow(lead.id)}>
             <span className="dmu-count">{contactCount} DMU</span>
           </td>
         );
       case "email":
       case "phone":
-        return <td key={colId} />;
+        return <td key={colId} className="excel-readonly" />;
       case "score":
         return (
-          <td key={colId} onClick={() => onSelectRow(lead.id)}>
+          <td key={colId} className="excel-readonly" onClick={() => onSelectRow(lead.id)}>
             <div className="score-wrap">
               <div className="score-bar-bg">
                 <div className="score-bar" style={{ width: `${score}%`, background: color }} />
@@ -253,53 +225,33 @@ export default function LeadsGrid({
           </td>
         );
       case "status":
-        return (
-          <GridCell key={colId} rowKey={rowKey} colId={colId} {...cp(rowKey, colId)}>
-            <select
-              className="grid-select"
-              value={lead.status}
-              {...bind({ rowKey, colId })}
-              onChange={(e) => onUpdate(lead.id, { status: e.target.value as LeadStatus })}
-            >
-              {STATUSES.map((s) => (
-                <option key={s} value={s}>
-                  {STATUS_LABELS[s]}
-                </option>
-              ))}
-            </select>
-          </GridCell>
-        );
+        return ec(rowKey, colId, lead.status, {
+          type: "select",
+          options: STATUS_OPTIONS,
+          displayValue: STATUS_LABELS[lead.status],
+        });
       case "batch":
         return (
-          <td key={colId} onClick={() => onSelectRow(lead.id)}>
+          <td key={colId} className="excel-readonly" onClick={() => onSelectRow(lead.id)}>
             <span className="batch-cell">{lead.batch || "?"}</span>
           </td>
         );
       case "aiSummary":
-        return (
-          <td key={colId} className="ai-cell" onClick={() => onSelectRow(lead.id)}>
-            <AiCellContent status={lead.aiStatus} value={lead.aiSummary} />
-          </td>
-        );
       case "aiMessage":
-        return (
-          <td key={colId} className="ai-cell" onClick={() => onSelectRow(lead.id)}>
-            <AiCellContent status={lead.aiStatus} value={lead.aiMessage} />
-          </td>
-        );
       case "aiNextStep":
         return (
-          <td key={colId} className="ai-cell" onClick={() => onSelectRow(lead.id)}>
-            <AiCellContent status={lead.aiStatus} value={lead.aiNextStep} />
+          <td key={colId} className="ai-cell excel-readonly" onClick={() => onSelectRow(lead.id)}>
+            <AiCellContent
+              status={lead.aiStatus}
+              value={colId === "aiSummary" ? lead.aiSummary : colId === "aiMessage" ? lead.aiMessage : lead.aiNextStep}
+            />
           </td>
         );
       case "hubspot":
         return (
-          <td key={colId} onClick={() => onSelectRow(lead.id)}>
+          <td key={colId} className="excel-readonly" onClick={() => onSelectRow(lead.id)}>
             {lead.hubspotCompanyId ? (
-              <span className="hs-badge hs-synced" title="Synced">
-                ? Synced
-              </span>
+              <span className="hs-badge hs-synced">?</span>
             ) : (
               <span className="hs-badge hs-pending">?</span>
             )}
@@ -307,292 +259,244 @@ export default function LeadsGrid({
         );
       case "actions":
         return (
-          <td key={colId} onClick={(e) => e.stopPropagation()}>
+          <td key={colId} className="excel-readonly" onClick={(e) => e.stopPropagation()}>
             <div className="actions-cell">
               <button type="button" className="action-btn" onClick={() => onCopyMessage(lead.id)}>
-                Copy
-              </button>
-              <button
-                type="button"
-                className="action-btn"
-                onClick={() => onRowAction("hubspot", lead.id)}
-                title="HubSpot sync"
-              >
-                HS
-              </button>
-              <button
-                type="button"
-                className="action-btn"
-                onClick={() => onRowAction("instantly", lead.id)}
-                title="Instantly"
-              >
                 ?
+              </button>
+              <button type="button" className="action-btn" onClick={() => onRowAction("hubspot", lead.id)}>
+                HS
               </button>
             </div>
           </td>
         );
       default:
-        return <td key={colId} />;
+        return <td key={colId} className="excel-readonly" />;
     }
   }
 
-  return (
-    <div
-      ref={gridRef}
-      className="table-wrap table-wrap-sticky sheet-grid-wrap"
-      tabIndex={0}
-      onKeyDown={handleGridKeyDown}
-    >
-      <table className="leads-grid">
-        <thead>
-          <tr>
-            <th className="grid-check-col">
-              <input
-                type="checkbox"
-                checked={allSelected}
-                onChange={() => onToggleSelectAll(leads.map((l) => l.id))}
-                aria-label="Select all"
-              />
-            </th>
-            <th className="grid-expand-col" />
-            {cols.map((col) =>
-              col.id === "actions" ? (
-                <th key={col.id}>{col.label}</th>
-              ) : (
-                <ColumnHeaderMenu
-                  key={col.id}
-                  col={col}
-                  sort={sort}
-                  onSort={onSort}
-                  onAction={onColumnAction}
-                />
-              )
-            )}
-          </tr>
-        </thead>
-        <tbody>
-          {leads.length === 0 && (
-            <tr>
-              <td colSpan={colSpan} className="grid-empty">
-                No rows ? add a row or import LinkedIn CSV
-              </td>
-            </tr>
-          )}
-          {leads.map((lead) => {
-            const contactCount = lead.contacts?.length ?? 0;
-            const showEmail = visibleColumns.includes("email");
-            const showPhone = visibleColumns.includes("phone");
+  let visualRow = 0;
 
-            return (
-              <Fragment key={lead.id}>
-                <tr
-                  className={`grid-row account-row${selectedId === lead.id ? " selected" : ""}${
-                    selectedIds.has(lead.id) ? " checked" : ""
-                  }`}
-                  onClick={() => onSelectRow(lead.id)}
-                >
-                  <td className="grid-check-col" onClick={(e) => e.stopPropagation()}>
-                    <input
-                      type="checkbox"
-                      checked={selectedIds.has(lead.id)}
-                      onChange={() => onToggleSelect(lead.id)}
-                      aria-label={`Select ${lead.company}`}
-                    />
-                  </td>
-                  <td className="grid-expand-col" onClick={(e) => e.stopPropagation()}>
-                    {contactCount > 0 && (
-                      <button
-                        type="button"
-                        className="expand-btn"
-                        onClick={() => onToggleExpand(lead.id)}
-                        aria-label="Toggle DMU contacts"
-                      >
-                        {lead.expanded ? "?" : "?"}
-                      </button>
-                    )}
-                  </td>
-                  {cols.map((col) => renderAccountCell(col.id, lead))}
-                </tr>
-                {lead.expanded &&
-                  lead.contacts.map((contact) => {
-                    const rowKey = `${lead.id}:${contact.id}`;
-                    return (
-                      <tr key={contact.id} className="grid-row contact-row">
-                        <td />
-                        <td />
-                        {cols.map((col) => {
-                          if (col.id === "company") {
-                            return (
-                              <td key={col.id} colSpan={visibleColumns.includes("market") ? 2 : 1}>
-                                <span className="dmu-role-badge">
-                                  {getDmuRoleLabel(contact.dmuRole)}
-                                </span>
-                              </td>
-                            );
-                          }
-                          if (col.id === "market" && !visibleColumns.includes("company")) {
-                            return (
-                              <td key={col.id}>
-                                <span className="dmu-role-badge">
-                                  {getDmuRoleLabel(contact.dmuRole)}
-                                </span>
-                              </td>
-                            );
-                          }
-                          if (col.id === "market") return null;
-                          if (col.id === "fitReason") {
-                            return (
-                              <GridCell
-                                key={col.id}
-                                rowKey={rowKey}
-                                colId={col.id}
-                                {...cp(rowKey, col.id)}
-                              >
-                                <input
-                                  className="grid-input"
-                                  value={contact.name}
-                                  placeholder="Name"
-                                  {...bind({ rowKey, colId: col.id })}
-                                  onChange={(e) =>
-                                    onUpdateContact(lead.id, contact.id, { name: e.target.value })
-                                  }
-                                />
-                              </GridCell>
-                            );
-                          }
-                          if (col.id === "dmu") {
-                            return (
-                              <GridCell
-                                key={col.id}
-                                rowKey={rowKey}
-                                colId={col.id}
-                                {...cp(rowKey, col.id)}
-                              >
-                                <input
-                                  className="grid-input"
-                                  value={contact.title}
-                                  placeholder="Title"
-                                  {...bind({ rowKey, colId: col.id })}
-                                  onChange={(e) =>
-                                    onUpdateContact(lead.id, contact.id, { title: e.target.value })
-                                  }
-                                />
-                              </GridCell>
-                            );
-                          }
-                          if (col.id === "email" && showEmail) {
-                            return (
-                              <GridCell
-                                key={col.id}
-                                rowKey={rowKey}
-                                colId={col.id}
-                                {...cp(rowKey, col.id)}
-                              >
-                                <div className="email-cell">
-                                  <input
-                                    className="grid-input"
-                                    value={contact.email}
-                                    placeholder="Email"
-                                    {...bind({ rowKey, colId: col.id })}
-                                    onChange={(e) =>
-                                      onUpdateContact(lead.id, contact.id, {
-                                        email: e.target.value,
-                                      })
-                                    }
-                                  />
-                                  {confidenceBadge(
-                                    contact.emailConfidence,
-                                    contact.enrichmentProvider
+  return (
+    <div className="excel-sheet">
+      <div className="excel-formula-bar">
+        <span className="excel-name-box">{excel.cellRef || "?"}</span>
+        <span className="excel-fx">fx</span>
+        <input
+          className="excel-formula-input"
+          value={excel.formulaValue}
+          placeholder="Select a cell or start typing?"
+          onChange={(e) => excel.onFormulaChange(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              excel.onFormulaCommit();
+            }
+            if (e.key === "Escape") excel.cancelEdit();
+          }}
+          onBlur={excel.onFormulaCommit}
+        />
+      </div>
+
+      <div
+        ref={gridRef}
+        className="table-wrap table-wrap-sticky sheet-grid-wrap excel-grid-wrap"
+        tabIndex={0}
+        onKeyDown={excel.handleGridKeyDown}
+      >
+        <table className="leads-grid excel-grid">
+          <thead>
+            <tr className="excel-letters-row">
+              <th colSpan={3} className="excel-corner" />
+              {cols.map((col, i) => (
+                <th key={col.id} className="excel-col-letter">
+                  {colIndexToLetter(i)}
+                </th>
+              ))}
+            </tr>
+            <tr>
+              <th className="excel-row-head">#</th>
+              <th className="grid-check-col">
+                <input
+                  type="checkbox"
+                  checked={allSelected}
+                  onChange={() => onToggleSelectAll(leads.map((l) => l.id))}
+                  aria-label="Select all"
+                />
+              </th>
+              <th className="grid-expand-col" />
+              {cols.map((col) =>
+                col.id === "actions" ? (
+                  <th key={col.id} className="excel-header-cell">
+                    {col.label}
+                  </th>
+                ) : (
+                  <ColumnHeaderMenu
+                    key={col.id}
+                    col={col}
+                    sort={sort}
+                    onSort={onSort}
+                    onAction={onColumnAction}
+                  />
+                )
+              )}
+            </tr>
+          </thead>
+          <tbody>
+            {leads.length === 0 && (
+              <tr>
+                <td colSpan={colSpan} className="grid-empty">
+                  No rows ? press + New row or import CSV
+                </td>
+              </tr>
+            )}
+            {leads.map((lead) => {
+              visualRow += 1;
+              const rowNum = visualRow;
+              const contactCount = lead.contacts?.length ?? 0;
+              const showEmail = visibleColumns.includes("email");
+              const showPhone = visibleColumns.includes("phone");
+
+              return (
+                <Fragment key={lead.id}>
+                  <tr
+                    className={`grid-row account-row${selectedId === lead.id ? " selected" : ""}${
+                      selectedIds.has(lead.id) ? " checked" : ""
+                    }`}
+                  >
+                    <td className="excel-row-num">{rowNum}</td>
+                    <td className="grid-check-col" onClick={(e) => e.stopPropagation()}>
+                      <input
+                        type="checkbox"
+                        checked={selectedIds.has(lead.id)}
+                        onChange={() => onToggleSelect(lead.id)}
+                      />
+                    </td>
+                    <td className="grid-expand-col" onClick={(e) => e.stopPropagation()}>
+                      {contactCount > 0 && (
+                        <button
+                          type="button"
+                          className="expand-btn"
+                          onClick={() => onToggleExpand(lead.id)}
+                        >
+                          {lead.expanded ? "?" : "?"}
+                        </button>
+                      )}
+                    </td>
+                    {cols.map((col) => renderAccountCell(col.id, lead))}
+                  </tr>
+                  {lead.expanded &&
+                    lead.contacts.map((contact) => {
+                      visualRow += 1;
+                      const contactRowNum = visualRow;
+                      const rowKey = `${lead.id}:${contact.id}`;
+                      return (
+                        <tr key={contact.id} className="grid-row contact-row">
+                          <td className="excel-row-num">{contactRowNum}</td>
+                          <td />
+                          <td />
+                          {cols.map((col) => {
+                            if (col.id === "company") {
+                              return (
+                                <td
+                                  key={col.id}
+                                  colSpan={visibleColumns.includes("market") ? 2 : 1}
+                                  className="excel-readonly"
+                                >
+                                  <span className="dmu-role-badge">
+                                    {getDmuRoleLabel(contact.dmuRole)}
+                                  </span>
+                                </td>
+                              );
+                            }
+                            if (col.id === "market" && !visibleColumns.includes("company")) {
+                              return (
+                                <td key={col.id} className="excel-readonly">
+                                  <span className="dmu-role-badge">
+                                    {getDmuRoleLabel(contact.dmuRole)}
+                                  </span>
+                                </td>
+                              );
+                            }
+                            if (col.id === "market") return null;
+                            if (col.id === "fitReason") return ec(rowKey, col.id, contact.name);
+                            if (col.id === "dmu") return ec(rowKey, col.id, contact.title);
+                            if (col.id === "email" && showEmail) {
+                              return ec(rowKey, col.id, contact.email);
+                            }
+                            if (col.id === "phone" && showPhone) {
+                              return ec(rowKey, col.id, contact.phone);
+                            }
+                            if (col.id === "score") {
+                              return (
+                                <td
+                                  key={col.id}
+                                  colSpan={visibleColumns.includes("status") ? 2 : 1}
+                                  className="excel-readonly"
+                                >
+                                  <span className={`enrich-status enrich-${contact.enrichmentStatus}`}>
+                                    {contact.enrichmentStatus}
+                                  </span>
+                                </td>
+                              );
+                            }
+                            if (col.id === "status" && !visibleColumns.includes("score")) {
+                              return (
+                                <td key={col.id} className="excel-readonly">
+                                  <span className={`enrich-status enrich-${contact.enrichmentStatus}`}>
+                                    {contact.enrichmentStatus}
+                                  </span>
+                                </td>
+                              );
+                            }
+                            if (col.id === "status") return null;
+                            if (
+                              col.id === "aiSummary" ||
+                              col.id === "aiMessage" ||
+                              col.id === "aiNextStep"
+                            ) {
+                              const val =
+                                col.id === "aiSummary"
+                                  ? contact.aiSummary
+                                  : col.id === "aiMessage"
+                                    ? contact.aiMessage
+                                    : contact.aiNextStep;
+                              return (
+                                <td key={col.id} className="ai-cell excel-readonly">
+                                  <AiCellContent value={val} />
+                                </td>
+                              );
+                            }
+                            if (col.id === "actions") {
+                              return (
+                                <td key={col.id} className="excel-readonly">
+                                  {contact.linkedinUrl && (
+                                    <a
+                                      className="action-btn linkedin"
+                                      href={contact.linkedinUrl}
+                                      target="_blank"
+                                      rel="noreferrer"
+                                    >
+                                      in
+                                    </a>
                                   )}
-                                </div>
-                              </GridCell>
-                            );
-                          }
-                          if (col.id === "phone" && showPhone) {
-                            return (
-                              <GridCell
-                                key={col.id}
-                                rowKey={rowKey}
-                                colId={col.id}
-                                {...cp(rowKey, col.id)}
-                              >
-                                <input
-                                  className="grid-input"
-                                  value={contact.phone}
-                                  placeholder="Phone"
-                                  {...bind({ rowKey, colId: col.id })}
-                                  onChange={(e) =>
-                                    onUpdateContact(lead.id, contact.id, { phone: e.target.value })
-                                  }
-                                />
-                              </GridCell>
-                            );
-                          }
-                          if (col.id === "score") {
-                            return (
-                              <td key={col.id} colSpan={visibleColumns.includes("status") ? 2 : 1}>
-                                <span className={`enrich-status enrich-${contact.enrichmentStatus}`}>
-                                  {contact.enrichmentStatus}
-                                </span>
-                              </td>
-                            );
-                          }
-                          if (col.id === "status" && !visibleColumns.includes("score")) {
-                            return (
-                              <td key={col.id}>
-                                <span className={`enrich-status enrich-${contact.enrichmentStatus}`}>
-                                  {contact.enrichmentStatus}
-                                </span>
-                              </td>
-                            );
-                          }
-                          if (col.id === "status") return null;
-                          if (
-                            col.id === "aiSummary" ||
-                            col.id === "aiMessage" ||
-                            col.id === "aiNextStep"
-                          ) {
-                            const val =
-                              col.id === "aiSummary"
-                                ? contact.aiSummary
-                                : col.id === "aiMessage"
-                                  ? contact.aiMessage
-                                  : contact.aiNextStep;
-                            return (
-                              <td key={col.id} className="ai-cell">
-                                <AiCellContent value={val} />
-                              </td>
-                            );
-                          }
-                          if (col.id === "actions") {
-                            return (
-                              <td key={col.id}>
-                                {contact.linkedinUrl && (
-                                  <a
-                                    className="action-btn linkedin"
-                                    href={contact.linkedinUrl}
-                                    target="_blank"
-                                    rel="noreferrer"
-                                  >
-                                    in
-                                  </a>
-                                )}
-                              </td>
-                            );
-                          }
-                          return <td key={col.id} />;
-                        })}
-                      </tr>
-                    );
-                  })}
-              </Fragment>
-            );
-          })}
-        </tbody>
-      </table>
-      <button type="button" className="grid-add-row" onClick={onAddRow}>
-        + New row
-      </button>
+                                </td>
+                              );
+                            }
+                            return <td key={col.id} className="excel-readonly" />;
+                          })}
+                        </tr>
+                      );
+                    })}
+                </Fragment>
+              );
+            })}
+          </tbody>
+        </table>
+        <button type="button" className="grid-add-row" onClick={onAddRow}>
+          + New row
+        </button>
+      </div>
     </div>
   );
 }
