@@ -1,0 +1,10 @@
+#!/bin/sh
+# Auto-push to origin (and demo remote if configured) after every commit.
+branch=$(git symbolic-ref --short HEAD 2>/dev/null) || exit 0
+[ -n "$branch" ] || exit 0
+
+git push origin "$branch" 2>/dev/null &
+if git remote | grep -q '^demo$'; then
+  git push demo HEAD:main 2>/dev/null &
+fi
+wait

@@ -1,53 +1,20 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getAuthFromRequest } from "@/lib/auth-server";
 import { loadLeadsWithContacts } from "@/lib/data/leads-db";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { isHubSpotConfigured } from "@/lib/hubspot/client";
-import { getAiConfig } from "@/lib/automation/provider";
 
-export async function GET() {
-  const { apiKey, provider } = getAiConfig();
+async function enrichUser(
+  req: NextRequest,
+  userId: string
+): Promise<{ processed: number; error?: string }> {
   const supabase = createAdminClient();
-
-  return NextResponse.json({
-    cloud: Boolean(supabase),
-    ai: Boolean(apiKey),
-    openai: Boolean(process.env.OPENAI_API_KEY),
-    anthropic: Boolean(process.env.ANTHROPIC_API_KEY),
-    aiProvider: provider,
-    supabasePublic: Boolean(
-      process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-    ),
-    hubspot: isHubSpotConfigured(),
-    supabaseAuth: Boolean(
-      process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-    ),
-  });
-}
-
-export async function POST(req: NextRequest) {
-  const cronSecret = process.env.CRON_SECRET;
-  const authHeader = req.headers.get("authorization");
-  if (cronSecret && authHeader !== `Bearer ${cronSecret}`) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
-
-  const body = (await req.json().catch(() => ({}))) as { userId?: string };
-  const userId = body.userId ?? "demo-user";
-
-  const supabase = createAdminClient();
-  if (!supabase) {
-    return NextResponse.json({ error: "Cloud not configured" }, { status: 503 });
-  }
+  if (!supabase) return { processed: 0, error: "Cloud not configured" };
 
   const leads = await loadLeadsWithContacts(supabase, userId);
   const pending = leads.filter(
     (l) => !l.market || !l.fitReason || l.contacts.some((c) => c.enrichmentStatus === "idle")
   );
 
-  if (!pending.length) {
-    return NextResponse.json({ message: "No pending enrichment", processed: 0 });
-  }
+  if (!pending.length) return { processed: 0 };
 
   const enrichRes = await fetch(
     new URL("/api/leads/enrich", req.url).origin + "/api/leads/enrich",
@@ -66,15 +33,66 @@ export async function POST(req: NextRequest) {
 
   if (!enrichRes.ok) {
     const err = await enrichRes.json().catch(() => ({}));
-    return NextResponse.json(
-      { error: (err as { error?: string }).error ?? "Enrichment failed" },
-      { status: 502 }
-    );
+    return {
+      processed: 0,
+      error: (err as { error?: string }).error ?? "Enrichment failed",
+    };
   }
 
   const result = await enrichRes.json();
+  return { processed: (result as { leads?: unknown[] }).leads?.length ?? 0 };
+}
+
+async function runNightlyEnrichment(req: NextRequest, body: { userIds?: string[] }) {
+  const supabase = createAdminClient();
+  if (!supabase) {
+    return NextResponse.json({ error: "Cloud not configured" }, { status: 503 });
+  }
+
+  let userIds = body.userIds ?? [];
+  if (!userIds.length) {
+    const envIds = process.env.NIGHTLY_USER_IDS?.split(",").map((s) => s.trim()).filter(Boolean);
+    if (envIds?.length) {
+      userIds = envIds;
+    } else {
+      const { data } = await supabase.from("user_settings").select("user_id, settings");
+      userIds =
+        data
+          ?.filter((row) => (row.settings as { nightlyAgent?: boolean })?.nightlyAgent)
+          .map((row) => row.user_id) ?? [];
+      if (!userIds.length) userIds = ["demo-user"];
+    }
+  }
+
+  const results: Array<{ userId: string; processed: number; error?: string }> = [];
+  for (const userId of userIds) {
+    results.push({ userId, ...(await enrichUser(req, userId)) });
+  }
+
+  const total = results.reduce((n, r) => n + r.processed, 0);
   return NextResponse.json({
     message: "Nightly enrichment complete",
-    processed: (result as { leads?: unknown[] }).leads?.length ?? 0,
+    processed: total,
+    results,
   });
+}
+
+export async function GET(req: NextRequest) {
+  const cronSecret = process.env.CRON_SECRET;
+  const authHeader = req.headers.get("authorization");
+  if (cronSecret && authHeader !== `Bearer ${cronSecret}`) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+  return runNightlyEnrichment(req, {});
+}
+
+export async function POST(req: NextRequest) {
+  const cronSecret = process.env.CRON_SECRET;
+  const authHeader = req.headers.get("authorization");
+  if (cronSecret && authHeader !== `Bearer ${cronSecret}`) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
+  const body = (await req.json().catch(() => ({}))) as { userIds?: string[] };
+  return runNightlyEnrichment(req, body);
 }

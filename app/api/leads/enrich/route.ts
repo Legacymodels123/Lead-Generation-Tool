@@ -4,9 +4,8 @@ import { getAiConfig } from "@/lib/automation/provider";
 import {
   claudeAccountFallback,
   claudeContactFallback,
-  claudeEnricher,
 } from "@/lib/enrichment/claude-enricher";
-import { createWaterfall } from "@/lib/enrichment/provider";
+import { buildAccountWaterfall, buildEnrichmentWaterfall } from "@/lib/enrichment/waterfall";
 import { loadLeadsWithContacts, leadToRow, saveContactsForLead } from "@/lib/data/leads-db";
 import { createAdminClient } from "@/lib/supabase/admin";
 import type { Contact, Lead } from "@/lib/types";
@@ -42,13 +41,14 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Geen leads gevonden" }, { status: 404 });
   }
 
-  const waterfall = createWaterfall(apiKey ? [claudeEnricher] : []);
+  const contactWaterfall = buildEnrichmentWaterfall(Boolean(apiKey));
+  const accountWaterfall = buildAccountWaterfall(Boolean(apiKey));
   const updated: Lead[] = [];
 
   for (const lead of targets) {
     try {
-      const accountData = apiKey
-        ? await waterfall.enrichAccount(lead)
+      const accountData = accountWaterfall
+        ? await accountWaterfall.enrichAccount(lead)
         : claudeAccountFallback(lead);
 
       let contacts: Contact[] = lead.contacts.map((c) => {
@@ -66,8 +66,8 @@ export async function POST(req: NextRequest) {
         contacts = await Promise.all(
           contacts.map(async (contact) => {
             try {
-              const enriched = apiKey
-                ? await waterfall.enrichContact(contact, lead)
+              const enriched = contactWaterfall
+                ? await contactWaterfall.enrichContact(contact, lead)
                 : claudeContactFallback(contact, lead);
               return {
                 ...contact,
@@ -77,6 +77,7 @@ export async function POST(req: NextRequest) {
                 phone: enriched.phone,
                 linkedinUrl: enriched.linkedinUrl || contact.linkedinUrl,
                 emailConfidence: enriched.emailConfidence,
+                enrichmentProvider: enriched.enrichmentProvider,
                 aiSummary: enriched.aiSummary,
                 enrichmentStatus: "done" as const,
               };

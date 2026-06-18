@@ -26,6 +26,7 @@ export interface Contact {
   hubspotContactId?: string;
   enrichmentStatus: EnrichmentStatus;
   emailConfidence?: EmailConfidence;
+  enrichmentProvider?: string;
   aiMessage?: string;
   aiSummary?: string;
   aiNextStep?: string;

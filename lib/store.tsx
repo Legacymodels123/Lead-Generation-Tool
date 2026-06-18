@@ -11,20 +11,25 @@ import {
 } from "react";
 import { useAuth, getDataKey } from "./auth";
 import {
+  dispatchWebhookCloud,
   enrichLeadsCloud,
   fetchCloudData,
   fetchServiceStatus,
   patchCloudLead,
   postCloudLead,
+  pushInstantlyCloud,
   recalculateCloudScores,
   runAiColumnsCloud,
   runBatchCloud,
   saveCloudSnapshot,
   syncHubSpotCloud,
+  syncUserSettingsCloud,
 } from "./data/leads-client";
 import { SEED_LEADS } from "./seed-data";
 import type { Batch, Contact, CreditTransaction, Integrations, Lead, UserData } from "./types";
 import { DEFAULT_AI_COLUMNS, type AiColumnKey } from "./types/automation";
+import { WORKFLOW_PRESETS } from "./automation/presets";
+import { loadUserSettings } from "./user-settings";
 import { CREDIT_COSTS, DEFAULT_WORKSPACE_ID, NIGHTLY_BATCH_LEADS } from "./types";
 import { normalizeLead, syncPrimaryContactFields, updateContactInLead } from "./utils/contacts";
 import { fitScore, generateId, todayBatchDate } from "./utils";
@@ -41,12 +46,17 @@ interface AppContextValue {
   updateLead: (id: string, updates: Partial<Lead>) => void;
   updateContact: (leadId: string, contactId: string, updates: Partial<Contact>) => void;
   toggleExpand: (id: string) => void;
-  addLead: (lead: Omit<Lead, "id" | "score" | "batch" | "isNew" | "contacts" | "workspaceId">) => string | null;
+  addLead: (
+    lead: Omit<Lead, "id" | "score" | "batch" | "isNew" | "contacts" | "workspaceId">
+  ) => Promise<{ error?: string; id?: string }>;
   addQuickRow: () => string | null;
   recalculateScores: (ids: string[]) => Promise<string | null>;
   runAiColumns: (ids: string[], columns?: AiColumnKey[]) => Promise<string | null>;
   enrichLeads: (ids: string[]) => Promise<string | null>;
   syncHubSpot: (ids: string[]) => Promise<string | null>;
+  runWorkflow: (presetId: string, ids: string[]) => Promise<string | null>;
+  pushInstantly: (ids: string[]) => Promise<string | null>;
+  emitBatchImported: (count: number, leadIds: string[]) => void;
   runNightlyBatch: () => Promise<string | null>;
   spendCredits: (amount: number, description: string) => boolean;
   addCredits: (amount: number, description: string) => void;
@@ -108,6 +118,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
     setToast(msg);
     setTimeout(() => setToast(null), 2500);
   }, []);
+
+  const emitWebhook = useCallback(
+    async (event: string, data: Record<string, unknown>) => {
+      if (!user?.integrations.webhooks) return;
+      const settings = loadUserSettings(user.id);
+      if (!settings.webhookUrl) return;
+      await dispatchWebhookCloud(user.id, event, data);
+    },
+    [user]
+  );
 
   useEffect(() => {
     fetchServiceStatus()
@@ -228,6 +248,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const updateLead = useCallback(
     (id: string, updates: Partial<Lead>) => {
       setLeads((prev) => {
+        const prevLead = prev.find((l) => l.id === id);
         const next = prev.map((l) => {
           if (l.id !== id) return l;
           const merged = syncPrimaryContactFields(
@@ -243,10 +264,23 @@ export function AppProvider({ children }: { children: ReactNode }) {
         } else {
           persistLocal(next, batches);
         }
+        if (
+          prevLead &&
+          updates.status &&
+          updates.status !== prevLead.status &&
+          user
+        ) {
+          emitWebhook("lead.status_changed", {
+            leadId: id,
+            company: updated?.company,
+            from: prevLead.status,
+            to: updates.status,
+          });
+        }
         return next;
       });
     },
-    [batches, persistLocal, showToast, storageMode, user]
+    [batches, persistLocal, showToast, storageMode, user, emitWebhook]
   );
 
   const updateContact = useCallback(
@@ -278,10 +312,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const addLead = useCallback(
-    (lead: Omit<Lead, "id" | "score" | "batch" | "isNew" | "contacts" | "workspaceId">): string | null => {
-      if (!user) return "Niet ingelogd.";
+    async (
+      lead: Omit<Lead, "id" | "score" | "batch" | "isNew" | "contacts" | "workspaceId">
+    ): Promise<{ error?: string; id?: string }> => {
+      if (!user) return { error: "Niet ingelogd." };
       if (!spendCredits(CREDIT_COSTS.addLead, "Handmatige lead toegevoegd")) {
-        return `Onvoldoende credits. ${CREDIT_COSTS.addLead} credits vereist.`;
+        return { error: `Onvoldoende credits. ${CREDIT_COSTS.addLead} credits vereist.` };
       }
       const batch = todayBatchDate();
       const newLead = normalizeLead({
@@ -294,9 +330,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
       });
 
       if (storageMode === "cloud") {
-        postCloudLead(user.id, newLead)
-          .then((saved) => setLeads((prev) => [normalizeLead(saved), ...prev]))
-          .catch(() => showToast("Lead kon niet in cloud worden opgeslagen"));
+        try {
+          const saved = await postCloudLead(user.id, newLead);
+          setLeads((prev) => [normalizeLead(saved), ...prev]);
+        } catch {
+          showToast("Lead kon niet in cloud worden opgeslagen");
+          return { error: "Cloud opslaan mislukt" };
+        }
       } else {
         setLeads((prev) => {
           const next = [newLead, ...prev];
@@ -306,9 +346,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
       }
 
       showToast("Lead toegevoegd!");
-      return null;
+      emitWebhook("lead.created", { leadId: newLead.id, company: newLead.company });
+      return { id: newLead.id };
     },
-    [user, batches, spendCredits, persistLocal, showToast, storageMode, workspaceId]
+    [user, batches, spendCredits, persistLocal, showToast, storageMode, workspaceId, emitWebhook]
   );
 
   const addQuickRow = useCallback((): string | null => {
@@ -412,6 +453,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
         });
 
         showToast(`AI kolommen ingevuld voor ${updated.length} leads`);
+        emitWebhook("automation.completed", {
+          type: "ai_columns",
+          columns,
+          count: updated.length,
+        });
         return null;
       } catch (e) {
         setLeads((prev) =>
@@ -420,7 +466,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         return e instanceof Error ? e.message : "AI kolommen mislukt.";
       }
     },
-    [user, leads, batches, persistLocal, showToast, storageMode]
+    [user, leads, batches, persistLocal, showToast, storageMode, emitWebhook]
   );
 
   const enrichLeads = useCallback(
@@ -461,12 +507,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
         showToast(
           `Verrijkt: ${updated.length} accounts${aiPowered ? " (AI)" : " (fallback)"}`
         );
+        emitWebhook("automation.completed", {
+          type: "enrich",
+          count: updated.length,
+        });
         return null;
       } catch (e) {
         return e instanceof Error ? e.message : "Verrijking mislukt.";
       }
     },
-    [user, leads, batches, persistLocal, showToast, spendCredits, storageMode]
+    [user, leads, batches, persistLocal, showToast, spendCredits, storageMode, emitWebhook]
   );
 
   const syncHubSpot = useCallback(
@@ -479,12 +529,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
         return `Onvoldoende credits. ${cost} credits vereist.`;
       }
 
+      const settings = loadUserSettings(user.id);
+
       try {
         const snapshot = leads.filter((l) => ids.includes(l.id));
         const { leads: updated, synced, failed } = await syncHubSpotCloud(
           user.id,
           ids,
-          snapshot
+          snapshot,
+          settings.hubspotTimelineNotes
         );
 
         setLeads((prev) => {
@@ -498,12 +551,82 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
         updateUser({ integrations: { ...user.integrations, crm: true, hubspotConnected: true } });
         showToast(`HubSpot: ${synced} gesynchroniseerd${failed ? `, ${failed} mislukt` : ""}`);
+        emitWebhook("automation.completed", { type: "hubspot_sync", synced, failed });
         return failed && !synced ? "HubSpot sync gedeeltelijk mislukt" : null;
       } catch (e) {
         return e instanceof Error ? e.message : "HubSpot sync mislukt.";
       }
     },
-    [user, leads, batches, persistLocal, showToast, spendCredits, storageMode, updateUser]
+    [user, leads, batches, persistLocal, showToast, spendCredits, storageMode, updateUser, emitWebhook]
+  );
+
+  const runWorkflow = useCallback(
+    async (presetId: string, ids: string[]): Promise<string | null> => {
+      if (!user) return "Niet ingelogd.";
+      if (!ids.length) return "Selecteer minimaal één rij.";
+
+      const preset = WORKFLOW_PRESETS.find((p) => p.id === presetId);
+      if (!preset) return "Onbekende workflow";
+
+      for (const step of preset.steps) {
+        if (step.type === "enrich") {
+          const err = await enrichLeads(ids);
+          if (err) return err;
+        } else if (step.type === "score") {
+          const err = await recalculateScores(ids);
+          if (err) return err;
+        } else if (step.type === "ai") {
+          const err = await runAiColumns(ids, step.columns ?? DEFAULT_AI_COLUMNS);
+          if (err) return err;
+        } else if (step.type === "hubspot") {
+          const err = await syncHubSpot(ids);
+          if (err) return err;
+        }
+      }
+
+      showToast(`Workflow "${preset.label}" voltooid`);
+      emitWebhook("automation.completed", { type: "workflow", presetId, count: ids.length });
+      return null;
+    },
+    [user, enrichLeads, recalculateScores, runAiColumns, syncHubSpot, showToast, emitWebhook]
+  );
+
+  const pushInstantly = useCallback(
+    async (ids: string[]): Promise<string | null> => {
+      if (!user) return "Niet ingelogd.";
+      if (!ids.length) return "Selecteer minimaal één rij.";
+
+      const settings = loadUserSettings(user.id);
+      if (!settings.instantlyCampaignId) {
+        return "Stel een Instantly campaign ID in bij Integraties";
+      }
+
+      try {
+        const snapshot = leads.filter((l) => ids.includes(l.id));
+        const { added, errors } = await pushInstantlyCloud(
+          user.id,
+          ids,
+          settings.instantlyCampaignId,
+          snapshot
+        );
+        if (errors.length && !added) {
+          return errors[0];
+        }
+        showToast(`${added} contact(en) naar Instantly`);
+        emitWebhook("automation.completed", { type: "instantly", added });
+        return null;
+      } catch (e) {
+        return e instanceof Error ? e.message : "Instantly mislukt";
+      }
+    },
+    [user, leads, showToast, emitWebhook]
+  );
+
+  const emitBatchImported = useCallback(
+    (count: number, leadIds: string[]) => {
+      emitWebhook("batch.imported", { count, leadIds });
+    },
+    [emitWebhook]
   );
 
   const runNightlyBatch = useCallback(async (): Promise<string | null> => {
@@ -546,9 +669,16 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const updateIntegrations = useCallback(
     (integrations: Integrations) => {
       updateUser({ integrations });
+      if (user) {
+        const settings = loadUserSettings(user.id);
+        syncUserSettingsCloud(user.id, {
+          ...settings,
+          nightlyAgent: integrations.nightlyAgent,
+        });
+      }
       showToast("Integraties opgeslagen");
     },
-    [updateUser, showToast]
+    [updateUser, showToast, user]
   );
 
   const value = useMemo(
@@ -568,6 +698,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
       runAiColumns,
       enrichLeads,
       syncHubSpot,
+      runWorkflow,
+      pushInstantly,
+      emitBatchImported,
       runNightlyBatch,
       spendCredits,
       addCredits,
@@ -589,6 +722,9 @@ export function AppProvider({ children }: { children: ReactNode }) {
       runAiColumns,
       enrichLeads,
       syncHubSpot,
+      runWorkflow,
+      pushInstantly,
+      emitBatchImported,
       runNightlyBatch,
       spendCredits,
       addCredits,

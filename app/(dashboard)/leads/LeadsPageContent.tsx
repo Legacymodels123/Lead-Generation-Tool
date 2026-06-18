@@ -2,18 +2,35 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
+import { useAuth } from "@/lib/auth";
+import { WORKFLOW_PRESETS } from "@/lib/automation/presets";
+import { exportLeadsToCsv } from "@/lib/export-csv";
+import { filterAndSortLeads } from "@/lib/lead-filters";
 import { useApp } from "@/lib/store";
 import type { LeadStatus } from "@/lib/types";
+import type { AiColumnKey } from "@/lib/types/automation";
+import { loadUserSettings } from "@/lib/user-settings";
+import {
+  DEFAULT_VIEWS,
+  loadViews,
+  saveViews,
+  type LeadView,
+  type SortField,
+  type SortDir,
+} from "@/lib/views";
 import { STATUS_LABELS } from "@/lib/utils";
-import LeadDetailPanel from "@/components/LeadDetailPanel";
 import AddLeadModal from "@/components/AddLeadModal";
+import ColumnPicker from "@/components/ColumnPicker";
+import LeadDetailPanel from "@/components/LeadDetailPanel";
+import LeadsGrid, { type ColumnAction } from "@/components/LeadsGrid";
 import LinkedInImport from "@/components/LinkedInImport";
-import LeadsGrid from "@/components/LeadsGrid";
+import ViewSelector from "@/components/ViewSelector";
 
 type Filter = LeadStatus | "alle";
 
 export default function LeadsPageContent() {
   const searchParams = useSearchParams();
+  const { user } = useAuth();
   const {
     leads,
     showToast,
@@ -26,17 +43,79 @@ export default function LeadsPageContent() {
     runAiColumns,
     enrichLeads,
     syncHubSpot,
+    runWorkflow,
+    pushInstantly,
   } = useApp();
+
+  const [views, setViews] = useState<LeadView[]>(DEFAULT_VIEWS);
+  const [activeViewId, setActiveViewId] = useState("alle");
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
-  const [statusFilter, setStatusFilter] = useState<Filter>("alle");
-  const [search, setSearch] = useState("");
   const [showAddModal, setShowAddModal] = useState(false);
   const [showLinkedInImport, setShowLinkedInImport] = useState(false);
-  const [runningAutomation, setRunningAutomation] = useState(false);
-  const [runningAi, setRunningAi] = useState(false);
-  const [runningEnrich, setRunningEnrich] = useState(false);
-  const [runningHubSpot, setRunningHubSpot] = useState(false);
+  const [runningWorkflow, setRunningWorkflow] = useState(false);
+  const [workflowOpen, setWorkflowOpen] = useState(false);
+  const [minScore, setMinScore] = useState<number | "">("");
+  const [batchFilter, setBatchFilter] = useState("");
+  const [hasEmailFilter, setHasEmailFilter] = useState(false);
+
+  const activeView = useMemo(
+    () => views.find((v) => v.id === activeViewId) ?? views[0],
+    [views, activeViewId]
+  );
+
+  useEffect(() => {
+    if (!user) return;
+    const loaded = loadViews(user.id);
+    setViews(loaded);
+    setActiveViewId(loaded[0]?.id ?? "alle");
+  }, [user?.id]);
+
+  useEffect(() => {
+    if (!activeView) return;
+    setMinScore(activeView.advancedFilters?.minScore ?? "");
+    setBatchFilter(activeView.advancedFilters?.batch ?? "");
+    setHasEmailFilter(activeView.advancedFilters?.hasEmail ?? false);
+  }, [activeViewId, activeView]);
+
+  const currentView: LeadView = useMemo(
+    () => ({
+      ...activeView,
+      advancedFilters: {
+        minScore: minScore === "" ? undefined : minScore,
+        batch: batchFilter || undefined,
+        hasEmail: hasEmailFilter || undefined,
+      },
+    }),
+    [activeView, minScore, batchFilter, hasEmailFilter]
+  );
+
+  const statusFilter = currentView.statusFilter;
+  const search = currentView.search;
+
+  const setStatusFilter = useCallback(
+    (s: Filter) => {
+      setViews((prev) => {
+        const next = prev.map((v) =>
+          v.id === activeViewId ? { ...v, statusFilter: s } : v
+        );
+        if (user) saveViews(user.id, next);
+        return next;
+      });
+    },
+    [activeViewId, user]
+  );
+
+  const setSearch = useCallback(
+    (value: string) => {
+      setViews((prev) => {
+        const next = prev.map((v) => (v.id === activeViewId ? { ...v, search: value } : v));
+        if (user) saveViews(user.id, next);
+        return next;
+      });
+    },
+    [activeViewId, user]
+  );
 
   useEffect(() => {
     const param = searchParams.get("selected");
@@ -46,22 +125,15 @@ export default function LeadsPageContent() {
     }
   }, [searchParams, leads, toggleExpand]);
 
-  const filtered = useMemo(() => {
-    return leads.filter((p) => {
-      const ms = statusFilter === "alle" || p.status === statusFilter;
-      const mq =
-        !search ||
-        p.company.toLowerCase().includes(search.toLowerCase()) ||
-        p.contactName.toLowerCase().includes(search.toLowerCase()) ||
-        p.market.toLowerCase().includes(search.toLowerCase()) ||
-        p.contacts.some(
-          (c) =>
-            c.name.toLowerCase().includes(search.toLowerCase()) ||
-            c.email.toLowerCase().includes(search.toLowerCase())
-        );
-      return ms && mq;
-    });
-  }, [leads, statusFilter, search]);
+  const batchOptions = useMemo(() => {
+    const set = new Set(leads.map((l) => l.batch).filter(Boolean));
+    return [...set].sort().reverse();
+  }, [leads]);
+
+  const filtered = useMemo(
+    () => filterAndSortLeads(leads, currentView),
+    [leads, currentView]
+  );
 
   const selected = leads.find((p) => p.id === selectedId);
 
@@ -120,36 +192,109 @@ export default function LeadsPageContent() {
     });
   }, []);
 
-  async function runScoreAutomation() {
-    const ids = selectedIds.size > 0 ? [...selectedIds] : filtered.map((l) => l.id);
-    setRunningAutomation(true);
-    const err = await recalculateScores(ids);
+  const targetIds = useCallback(
+    () => (selectedIds.size > 0 ? [...selectedIds] : filtered.map((l) => l.id)),
+    [selectedIds, filtered]
+  );
+
+  async function handleColumnAction(action: ColumnAction) {
+    const ids = targetIds();
+    if (action === "score") {
+      const err = await recalculateScores(ids);
+      if (err) showToast(err);
+      return;
+    }
+    if (action === "enrich") {
+      const err = await enrichLeads(ids);
+      if (err) showToast(err);
+      return;
+    }
+    if (action === "hubspot") {
+      const err = await syncHubSpot(ids);
+      if (err) showToast(err);
+      return;
+    }
+    if (action === "instantly") {
+      const err = await pushInstantly(ids);
+      if (err) showToast(err);
+      return;
+    }
+    const col = action as AiColumnKey;
+    const err = await runAiColumns(ids, [col]);
     if (err) showToast(err);
-    setRunningAutomation(false);
   }
 
-  async function runAiAutomation() {
-    const ids = selectedIds.size > 0 ? [...selectedIds] : filtered.map((l) => l.id);
-    setRunningAi(true);
-    const err = await runAiColumns(ids);
-    if (err) showToast(err);
-    setRunningAi(false);
+  async function handleRowAction(action: ColumnAction, leadId: string) {
+    if (action === "hubspot") {
+      const err = await syncHubSpot([leadId]);
+      if (err) showToast(err);
+      return;
+    }
+    if (action === "instantly") {
+      const err = await pushInstantly([leadId]);
+      if (err) showToast(err);
+    }
   }
 
-  async function runEnrichAutomation() {
-    const ids = selectedIds.size > 0 ? [...selectedIds] : filtered.map((l) => l.id);
-    setRunningEnrich(true);
-    const err = await enrichLeads(ids);
+  async function runPreset(presetId: string) {
+    setRunningWorkflow(true);
+    setWorkflowOpen(false);
+    const err = await runWorkflow(presetId, targetIds());
     if (err) showToast(err);
-    setRunningEnrich(false);
+    setRunningWorkflow(false);
   }
 
-  async function runHubSpotSync() {
-    const ids = selectedIds.size > 0 ? [...selectedIds] : filtered.map((l) => l.id);
-    setRunningHubSpot(true);
-    const err = await syncHubSpot(ids);
-    if (err) showToast(err);
-    setRunningHubSpot(false);
+  function handleSort(field: SortField) {
+    setViews((prev) => {
+      const next = prev.map((v) => {
+        if (v.id !== activeViewId) return v;
+        const cur = v.sort;
+        const dir: SortDir =
+          cur?.field === field ? (cur.dir === "asc" ? "desc" : "asc") : "asc";
+        return { ...v, sort: { field, dir } };
+      });
+      if (user) saveViews(user.id, next);
+      return next;
+    });
+  }
+
+  function handleColumnsChange(columns: string[]) {
+    setViews((prev) => {
+      const next = prev.map((v) =>
+        v.id === activeViewId ? { ...v, visibleColumns: columns } : v
+      );
+      if (user) saveViews(user.id, next);
+      return next;
+    });
+  }
+
+  function handleSaveView(name: string) {
+    const snapshot: LeadView = {
+      ...currentView,
+      id: `view-${Date.now()}`,
+      name,
+    };
+    setViews((prev) => {
+      const next = [...prev, snapshot];
+      if (user) saveViews(user.id, next);
+      return next;
+    });
+    setActiveViewId(snapshot.id);
+    showToast(`View "${name}" opgeslagen`);
+  }
+
+  function handleDeleteView(id: string) {
+    setViews((prev) => {
+      const next = prev.filter((v) => v.id !== id);
+      if (user) saveViews(user.id, next);
+      return next;
+    });
+    if (activeViewId === id) setActiveViewId("alle");
+  }
+
+  function handleExport() {
+    exportLeadsToCsv(filtered, `leads-${activeView.name.replace(/\s+/g, "-").toLowerCase()}.csv`);
+    showToast(`${filtered.length} rijen geëxporteerd`);
   }
 
   const funnelStages = [
@@ -175,6 +320,19 @@ export default function LeadsPageContent() {
         <span className="topbar-sub">— Legacy Scale Models</span>
         <span className={`storage-badge storage-${storageMode}`}>{storageLabel}</span>
         <div className="topbar-spacer" />
+        {user && (
+          <ViewSelector
+            views={views}
+            activeViewId={activeViewId}
+            onSelect={setActiveViewId}
+            onSaveCurrent={handleSaveView}
+            onDelete={handleDeleteView}
+          />
+        )}
+        <ColumnPicker
+          visibleColumns={currentView.visibleColumns}
+          onChange={handleColumnsChange}
+        />
         <div className="search-box">
           <span className="search-icon">⌕</span>
           <input
@@ -185,37 +343,33 @@ export default function LeadsPageContent() {
           />
         </div>
         <button
-          className="btn-secondary"
+          className="btn-secondary btn-sm"
           type="button"
-          disabled={runningHubSpot || storageMode === "loading"}
-          onClick={runHubSpotSync}
+          onClick={handleExport}
+          disabled={filtered.length === 0}
         >
-          {runningHubSpot ? "HubSpot…" : "↑ HubSpot"}
+          Export CSV
         </button>
-        <button
-          className="btn-secondary"
-          type="button"
-          disabled={runningEnrich || storageMode === "loading"}
-          onClick={runEnrichAutomation}
-        >
-          {runningEnrich ? "Verrijken…" : "▶ Verrijk geselecteerde"}
-        </button>
-        <button
-          className="btn-secondary"
-          type="button"
-          disabled={runningAi || storageMode === "loading"}
-          onClick={runAiAutomation}
-        >
-          {runningAi ? "AI bezig…" : "▶ AI kolommen vullen"}
-        </button>
-        <button
-          className="btn-secondary"
-          type="button"
-          disabled={runningAutomation || storageMode === "loading"}
-          onClick={runScoreAutomation}
-        >
-          {runningAutomation ? "Bezig…" : "▶ Herbereken score"}
-        </button>
+        <div className="workflow-dropdown">
+          <button
+            className="btn-secondary"
+            type="button"
+            disabled={runningWorkflow || storageMode === "loading"}
+            onClick={() => setWorkflowOpen(!workflowOpen)}
+          >
+            {runningWorkflow ? "Workflow…" : "▶ Workflow"}
+          </button>
+          {workflowOpen && (
+            <div className="workflow-menu">
+              {WORKFLOW_PRESETS.map((p) => (
+                <button key={p.id} type="button" onClick={() => runPreset(p.id)}>
+                  <strong>{p.label}</strong>
+                  <span>{p.description}</span>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
         <button
           className="btn-secondary"
           type="button"
@@ -302,12 +456,51 @@ export default function LeadsPageContent() {
               {s === "alle" ? "Alle leads" : STATUS_LABELS[s]}
             </button>
           ))}
+          <span className="filter-sep" />
+          <label className="filter-advanced">
+            Min score
+            <input
+              type="number"
+              min={0}
+              max={100}
+              value={minScore}
+              onChange={(e) =>
+                setMinScore(e.target.value === "" ? "" : Number(e.target.value))
+              }
+              className="filter-input"
+            />
+          </label>
+          <label className="filter-advanced">
+            Batch
+            <select
+              value={batchFilter}
+              onChange={(e) => setBatchFilter(e.target.value)}
+              className="filter-select"
+            >
+              <option value="">Alle</option>
+              {batchOptions.map((b) => (
+                <option key={b} value={b}>
+                  {b}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="filter-advanced filter-check">
+            <input
+              type="checkbox"
+              checked={hasEmailFilter}
+              onChange={(e) => setHasEmailFilter(e.target.checked)}
+            />
+            Heeft e-mail
+          </label>
         </div>
 
         <div className="table-area">
           <div className="table-main">
             <LeadsGrid
               leads={filtered}
+              visibleColumns={currentView.visibleColumns}
+              sort={currentView.sort}
               selectedId={selectedId}
               selectedIds={selectedIds}
               onSelectRow={setSelectedId}
@@ -318,9 +511,13 @@ export default function LeadsPageContent() {
               onToggleExpand={toggleExpand}
               onAddRow={addQuickRow}
               onCopyMessage={copyMsg}
+              onSort={handleSort}
+              onColumnAction={handleColumnAction}
+              onRowAction={handleRowAction}
             />
             <div className="grid-footer">
-              {filtered.length} van {leads.length} leads
+              {filtered.length} rijen · view: {currentView.name}
+              {filtered.length !== leads.length && ` (${leads.length} totaal)`}
               {selectedIds.size > 0 && ` · ${selectedIds.size} geselecteerd`}
             </div>
           </div>
@@ -333,7 +530,10 @@ export default function LeadsPageContent() {
 
       {showAddModal && <AddLeadModal onClose={() => setShowAddModal(false)} />}
       {showLinkedInImport && (
-        <LinkedInImport onClose={() => setShowLinkedInImport(false)} />
+        <LinkedInImport
+          onClose={() => setShowLinkedInImport(false)}
+          autoPipeline={user ? loadUserSettings(user.id).autoImportPipeline : false}
+        />
       )}
     </>
   );

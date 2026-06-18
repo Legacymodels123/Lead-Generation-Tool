@@ -3,9 +3,15 @@
 import { useEffect, useState } from "react";
 import { useAuth } from "@/lib/auth";
 import { useApp } from "@/lib/store";
-import { fetchServiceStatus } from "@/lib/data/leads-client";
+import { fetchServiceStatus, syncUserSettingsCloud } from "@/lib/data/leads-client";
 import { LEGACY_SCALE_MODELS_ICP } from "@/lib/icp/legacy-scale-models";
 import type { Integrations } from "@/lib/types";
+import {
+  DEFAULT_USER_SETTINGS,
+  loadUserSettings,
+  saveUserSettings,
+  type UserSettings,
+} from "@/lib/user-settings";
 
 const INTEGRATIONS: {
   key: keyof Integrations;
@@ -25,7 +31,7 @@ const INTEGRATIONS: {
   {
     key: "webhooks",
     title: "Webhooks",
-    description: "Ontvang notificaties bij nieuwe batches",
+    description: "Ontvang notificaties bij leads, batches en automations",
   },
   {
     key: "nightlyAgent",
@@ -36,7 +42,8 @@ const INTEGRATIONS: {
 
 export default function IntegrationsPage() {
   const { user } = useAuth();
-  const { updateIntegrations, storageMode } = useApp();
+  const { updateIntegrations, storageMode, showToast } = useApp();
+  const [settings, setSettings] = useState<UserSettings>(DEFAULT_USER_SETTINGS);
   const [serviceStatus, setServiceStatus] = useState({
     cloud: false,
     ai: false,
@@ -46,8 +53,13 @@ export default function IntegrationsPage() {
     supabasePublic: false,
     hubspot: false,
     supabaseAuth: false,
+    instantly: false,
     missingEnv: [] as string[],
   });
+
+  useEffect(() => {
+    if (user) setSettings(loadUserSettings(user.id));
+  }, [user?.id]);
 
   useEffect(() => {
     fetchServiceStatus()
@@ -61,9 +73,14 @@ export default function IntegrationsPage() {
           supabasePublic: s.supabasePublic,
           hubspot: s.hubspot ?? false,
           supabaseAuth: s.supabaseAuth ?? false,
+          instantly: (s as { instantly?: boolean }).instantly ?? false,
           missingEnv: s.missingEnv ?? [],
         })
       )
+      .catch(() => {});
+    fetch("/api/integrations/instantly")
+      .then((r) => r.json())
+      .then((d) => setServiceStatus((prev) => ({ ...prev, instantly: Boolean(d.configured) })))
       .catch(() => {});
   }, []);
 
@@ -74,6 +91,16 @@ export default function IntegrationsPage() {
       ...user!.integrations,
       [key]: !user!.integrations[key],
     });
+  }
+
+  function persistSettings(next: UserSettings) {
+    setSettings(next);
+    saveUserSettings(user!.id, next);
+    syncUserSettingsCloud(user!.id, {
+      ...next,
+      nightlyAgent: user!.integrations.nightlyAgent,
+    });
+    showToast("Instellingen opgeslagen");
   }
 
   const icp = LEGACY_SCALE_MODELS_ICP;
@@ -101,16 +128,20 @@ export default function IntegrationsPage() {
             { label: "OpenAI", ok: serviceStatus.openai },
             { label: "Claude AI", ok: serviceStatus.anthropic },
             { label: "HubSpot CRM", ok: serviceStatus.hubspot },
-          ].map((item) => (
-            <div key={item.label} className="setting-row">
-              <div className="setting-info">
-                <h4>{item.label}</h4>
+            { label: "Instantly", ok: serviceStatus.instantly },
+            { label: "Hunter.io", ok: Boolean(process.env.NEXT_PUBLIC_HUNTER_HINT) },
+          ]
+            .filter((item) => item.label !== "Hunter.io")
+            .map((item) => (
+              <div key={item.label} className="setting-row">
+                <div className="setting-info">
+                  <h4>{item.label}</h4>
+                </div>
+                <span className={`status-pill ${item.ok ? "s-gewonnen" : "s-verloren"}`}>
+                  {item.ok ? "Geconfigureerd" : "Niet actief"}
+                </span>
               </div>
-              <span className={`status-pill ${item.ok ? "s-gewonnen" : "s-verloren"}`}>
-                {item.ok ? "Geconfigureerd" : "Niet actief"}
-              </span>
-            </div>
-          ))}
+            ))}
           {serviceStatus.ai && serviceStatus.aiProvider && (
             <p className="card-desc" style={{ marginTop: 8, color: "#166534" }}>
               Actieve AI provider:{" "}
@@ -128,6 +159,69 @@ export default function IntegrationsPage() {
               Voeg <code>HUBSPOT_ACCESS_TOKEN</code> toe voor CRM sync.
             </p>
           )}
+        </div>
+
+        <div className="card">
+          <div className="card-title">Outbound integraties</div>
+          <div className="setting-row" style={{ flexDirection: "column", alignItems: "stretch" }}>
+            <div className="setting-info" style={{ marginBottom: 8 }}>
+              <h4>Webhook URL</h4>
+              <p>POST JSON bij lead.created, batch.imported, automation.completed</p>
+            </div>
+            <input
+              className="settings-input"
+              type="url"
+              placeholder="https://hooks.example.com/leadgen"
+              value={settings.webhookUrl ?? ""}
+              onChange={(e) => persistSettings({ ...settings, webhookUrl: e.target.value })}
+            />
+          </div>
+          <div className="setting-row" style={{ flexDirection: "column", alignItems: "stretch" }}>
+            <div className="setting-info" style={{ marginBottom: 8 }}>
+              <h4>Instantly campaign ID</h4>
+              <p>Push geselecteerde leads met e-mail naar Instantly</p>
+            </div>
+            <input
+              className="settings-input"
+              placeholder="campaign-uuid"
+              value={settings.instantlyCampaignId ?? ""}
+              onChange={(e) =>
+                persistSettings({ ...settings, instantlyCampaignId: e.target.value })
+              }
+            />
+          </div>
+          <div className="setting-row">
+            <div className="setting-info">
+              <h4>Auto-pipeline na LinkedIn import</h4>
+              <p>Verrijk → score → AI kolommen na elke CSV import</p>
+            </div>
+            <button
+              type="button"
+              className={`toggle${settings.autoImportPipeline ? " on" : ""}`}
+              onClick={() =>
+                persistSettings({
+                  ...settings,
+                  autoImportPipeline: !settings.autoImportPipeline,
+                })
+              }
+            />
+          </div>
+          <div className="setting-row">
+            <div className="setting-info">
+              <h4>HubSpot timeline notities</h4>
+              <p>Log AI samenvatting als notitie bij sync</p>
+            </div>
+            <button
+              type="button"
+              className={`toggle${settings.hubspotTimelineNotes ? " on" : ""}`}
+              onClick={() =>
+                persistSettings({
+                  ...settings,
+                  hubspotTimelineNotes: !settings.hubspotTimelineNotes,
+                })
+              }
+            />
+          </div>
         </div>
 
         <div className="card">

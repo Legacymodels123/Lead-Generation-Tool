@@ -1,24 +1,27 @@
 "use client";
 
 import { useCallback, useRef, useState } from "react";
+import { PRESET_NA_IMPORT } from "@/lib/automation/presets";
 import { useApp } from "@/lib/store";
 import type { Lead } from "@/lib/types";
 import { findDuplicateCompanies, parseLinkedInCSV } from "@/lib/utils/csv-parser";
 
 interface Props {
   onClose: () => void;
+  autoPipeline?: boolean;
 }
 
 type Step = "upload" | "preview" | "importing" | "done";
 
-export default function LinkedInImport({ onClose }: Props) {
-  const { addLead, leads } = useApp();
+export default function LinkedInImport({ onClose, autoPipeline = false }: Props) {
+  const { addLead, leads, runWorkflow, emitBatchImported } = useApp();
   const inputRef = useRef<HTMLInputElement>(null);
   const [step, setStep] = useState<Step>("upload");
   const [parsed, setParsed] = useState<Partial<Lead>[]>([]);
   const [duplicates, setDuplicates] = useState<string[]>([]);
   const [importIndex, setImportIndex] = useState(0);
   const [imported, setImported] = useState(0);
+  const [pipelineRan, setPipelineRan] = useState(false);
   const [errors, setErrors] = useState<string[]>([]);
   const [dragging, setDragging] = useState(false);
 
@@ -61,13 +64,14 @@ export default function LinkedInImport({ onClose }: Props) {
     setImportIndex(0);
 
     const errs: string[] = [];
+    const importedIds: string[] = [];
     let count = 0;
 
     for (let i = 0; i < parsed.length; i++) {
       const lead = parsed[i];
       setImportIndex(i + 1);
 
-      const error = await addLead({
+      const result = await addLead({
         company: lead.company!,
         country: lead.country ?? "Nederland",
         market: lead.sector?.includes("Agri") ? "Agri Machinery" : lead.sector ?? "",
@@ -85,17 +89,26 @@ export default function LinkedInImport({ onClose }: Props) {
         message: lead.message ?? "",
       });
 
-      if (error) {
-        errs.push(`${lead.company}: ${error}`);
+      if (result.error) {
+        errs.push(`${lead.company}: ${result.error}`);
       } else {
         count++;
+        if (result.id) importedIds.push(result.id);
       }
     }
 
     setImported(count);
     setErrors(errs);
+    emitBatchImported(count, importedIds);
     setStep("done");
-  }, [parsed, addLead]);
+
+    if (autoPipeline && importedIds.length > 0) {
+      const err = await runWorkflow(PRESET_NA_IMPORT.id, importedIds);
+      setPipelineRan(!err);
+      if (err) errs.push(`Pipeline: ${err}`);
+      setErrors(errs);
+    }
+  }, [parsed, addLead, autoPipeline, runWorkflow, emitBatchImported]);
 
   return (
     <div className="modal-overlay" onClick={onClose}>
@@ -112,6 +125,12 @@ export default function LinkedInImport({ onClose }: Props) {
               Exporteer je leads vanuit Sales Navigator:{" "}
               <strong>Leads lijst → Export → CSV</strong>
             </p>
+            {autoPipeline && (
+              <p className="card-desc" style={{ marginBottom: 12, color: "#166534" }}>
+                Na import wordt automatisch de workflow &quot;{PRESET_NA_IMPORT.label}&quot;
+                uitgevoerd.
+              </p>
+            )}
             <div
               className={`csv-dropzone${dragging ? " dragging" : ""}`}
               onDragOver={(e) => {
@@ -213,6 +232,7 @@ export default function LinkedInImport({ onClose }: Props) {
           <div style={{ padding: "8px 0 0" }}>
             <p style={{ textAlign: "center", fontWeight: 600, marginBottom: 12 }}>
               {imported} leads geïmporteerd
+              {pipelineRan && " · workflow gestart"}
             </p>
             {errors.length > 0 && (
               <div className="form-error" style={{ marginBottom: 12 }}>

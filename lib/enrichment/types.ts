@@ -26,4 +26,5 @@ export interface ContactEnrichmentResult {
   linkedinUrl: string;
   emailConfidence: Contact["emailConfidence"];
   aiSummary: string;
+  enrichmentProvider?: string;
 }

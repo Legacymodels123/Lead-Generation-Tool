@@ -29,21 +29,23 @@ export default function AddLeadModal({ onClose }: Props) {
       setError("Bedrijf en contactpersoon zijn verplicht.");
       return;
     }
-    const err = addLead({
-      ...form,
-      market: form.sector.includes("Agri") ? "Agri Machinery" : form.sector,
-      fitReason: "",
-      website: "",
-      linkedinCompanyUrl: "",
-      status: "nieuw",
-      notes: "",
-      linkedinUrl: form.linkedinUrl || "https://linkedin.com",
-      message:
-        form.message ||
-        `Hi ${form.contactName.split(" ")[0]}, ik ben Levi van Legacy Scale Models. We lanceren Universal Hobbies en Weise Toys — graag een korte kennismaking.`,
-    });
-    if (err) setError(err);
-    else onClose();
+    void (async () => {
+      const result = await addLead({
+        ...form,
+        market: form.sector.includes("Agri") ? "Agri Machinery" : form.sector,
+        fitReason: "",
+        website: "",
+        linkedinCompanyUrl: "",
+        status: "nieuw",
+        notes: "",
+        linkedinUrl: form.linkedinUrl || "https://linkedin.com",
+        message:
+          form.message ||
+          `Hi ${form.contactName.split(" ")[0]}, ik ben Levi van Legacy Scale Models. We lanceren Universal Hobbies en Weise Toys — graag een korte kennismaking.`,
+      });
+      if (result.error) setError(result.error);
+      else onClose();
+    })();
   }
 
   return (
