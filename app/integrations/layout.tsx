@@ -1,6 +1,6 @@
 import { ReactNode } from "react";
-import MainLayoutClient from "@/components/MainLayoutClient";
+import ModernLayout from "@/components/ModernLayout";
 
 export default function Layout({ children }: { children: ReactNode }) {
-  return <MainLayoutClient>{children}</MainLayoutClient>;
+  return <ModernLayout>{children}</ModernLayout>;
 }
