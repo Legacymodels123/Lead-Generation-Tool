@@ -148,7 +148,7 @@ export function draftsToLeads(
       id: generateId(),
       ...base,
       linkedinUrl: `https://linkedin.com/search/results/companies/?keywords=${encodeURIComponent(d.company)}`,
-      status: "nieuw" as const,
+      status: "not_qualified" as const,
       batch: batchDate,
       isNew: true,
       notes: `[${sourceNote}] ${d.outreachAngle ?? ""}`.trim(),

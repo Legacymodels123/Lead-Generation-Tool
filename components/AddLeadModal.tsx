@@ -23,29 +23,32 @@ export default function AddLeadModal({ onClose }: Props) {
     message: "",
   });
 
-  function handleSubmit(e: React.FormEvent) {
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!form.company || !form.contactName) {
       setError("Bedrijf en contactpersoon zijn verplicht.");
       return;
     }
-    void (async () => {
-      const result = await addLead({
-        ...form,
-        market: form.sector.includes("Agri") ? "Agri Machinery" : form.sector,
-        fitReason: "",
-        website: "",
-        linkedinCompanyUrl: "",
-        status: "nieuw",
-        notes: "",
-        linkedinUrl: form.linkedinUrl || "https://linkedin.com",
-        message:
-          form.message ||
-          `Hi ${form.contactName.split(" ")[0]}, ik ben Levi van Legacy Scale Models. We lanceren Universal Hobbies en Weise Toys — graag een korte kennismaking.`,
-      });
-      if (result.error) setError(result.error);
-      else onClose();
-    })();
+    const leadId = await addLead({
+      ...form,
+      market: form.sector.includes("Agri") ? "Agri Machinery" : form.sector,
+      fitReason: "",
+      website: "",
+      linkedinCompanyUrl: "",
+      status: "not_qualified",
+      notes: "",
+      linkedinUrl: form.linkedinUrl || "https://linkedin.com",
+      message:
+        form.message ||
+        `Hi ${form.contactName.split(" ")[0]}, ik ben Levi van Legacy Scale Models. We lanceren Universal Hobbies en Weise Toys — graag een korte kennismaking.`,
+      batch: "manual",
+      isNew: true,
+      contacts: [],
+      score: 0,
+      source: "manual",
+    });
+    if (!leadId) setError("Kon lead niet toevoegen.");
+    else onClose();
   }
 
   return (

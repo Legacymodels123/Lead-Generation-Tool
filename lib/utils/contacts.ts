@@ -70,7 +70,7 @@ export function normalizeLead(lead: Partial<Lead> & { id: string }): Lead {
     contactName: lead.contactName ?? primary?.name ?? "",
     contactTitle: lead.contactTitle ?? primary?.title ?? "",
     linkedinUrl: lead.linkedinUrl ?? primary?.linkedinUrl ?? "",
-    status: lead.status ?? "nieuw",
+    status: lead.status ?? "not_qualified",
     batch: lead.batch ?? "",
     isNew: lead.isNew ?? true,
     notes: lead.notes ?? "",

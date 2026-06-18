@@ -50,8 +50,8 @@ export const DEFAULT_VIEWS: LeadView[] = [
   },
   {
     id: "nieuw",
-    name: "Nieuw",
-    statusFilter: "nieuw",
+    name: "Niet gekwalificeerd",
+    statusFilter: "not_qualified",
     search: "",
     visibleColumns: [...DEFAULT_VISIBLE_COLUMNS],
   },

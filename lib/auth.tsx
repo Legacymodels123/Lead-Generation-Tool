@@ -5,375 +5,146 @@ import {
   useCallback,
   useContext,
   useEffect,
-  useMemo,
   useState,
   type ReactNode,
 } from "react";
-import { setCachedToken } from "./api-headers";
-import { createClient } from "./supabase/client";
 import type { User } from "./types";
-import { DEFAULT_WORKSPACE_ID, STARTING_CREDITS } from "./types";
-import { generateId } from "./utils";
-
-const USERS_KEY = "legacy-leadgen-users";
-const SESSION_KEY = "legacy-leadgen-session";
-
-function isSupabaseAuthEnabled(): boolean {
-  return Boolean(
-    process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY
-  );
-}
-
-function loadUsers(): User[] {
-  if (typeof window === "undefined") return [];
-  try {
-    const raw = localStorage.getItem(USERS_KEY);
-    return raw ? (JSON.parse(raw) as User[]) : [];
-  } catch {
-    return [];
-  }
-}
-
-function saveUsers(users: User[]): void {
-  localStorage.setItem(USERS_KEY, JSON.stringify(users));
-}
-
-function loadLocalSessionUser(): User | null {
-  const sessionId = localStorage.getItem(SESSION_KEY);
-  if (!sessionId) return null;
-  const found = loadUsers().find((u) => u.id === sessionId);
-  if (!found) localStorage.removeItem(SESSION_KEY);
-  return found ?? null;
-}
-
-function isDemoCredentials(email: string, password: string): boolean {
-  return email.trim().toLowerCase() === "levi@legacy.com" && password === "legacy123";
-}
-
-function applyLocalDemoSession(setUserFn: (u: User) => void): User | null {
-  ensureDemoUser();
-  const found = loadUsers().find((u) => u.email.toLowerCase() === "levi@legacy.com");
-  if (!found) return null;
-  localStorage.setItem(SESSION_KEY, found.id);
-  setUserFn(found);
-  return found;
-}
-
-function ensureDemoUser(): void {
-  const users = loadUsers();
-  if (!users.find((u) => u.email === "levi@legacy.com")) {
-    users.push({
-      id: "demo-user",
-      email: "levi@legacy.com",
-      password: "legacy123",
-      name: "Levi Kempen",
-      company: "Legacy Scale Models",
-      credits: STARTING_CREDITS,
-      workspaceId: DEFAULT_WORKSPACE_ID,
-      transactions: [
-        {
-          id: generateId(),
-          type: "bonus",
-          amount: STARTING_CREDITS,
-          description: "Welkomstbonus",
-          createdAt: new Date().toISOString(),
-        },
-      ],
-      integrations: {
-        linkedin: true,
-        crm: false,
-        webhooks: false,
-        nightlyAgent: true,
-        hubspotConnected: false,
-      },
-    });
-    saveUsers(users);
-  }
-}
-
-function userFromSupabaseSession(
-  id: string,
-  email: string,
-  metadata?: Record<string, unknown>
-): User {
-  return {
-    id,
-    email,
-    password: "",
-    name: (metadata?.name as string) ?? email.split("@")[0],
-    company: (metadata?.company as string) ?? "Legacy Scale Models",
-    credits: STARTING_CREDITS,
-    workspaceId: DEFAULT_WORKSPACE_ID,
-    transactions: [],
-    integrations: {
-      linkedin: true,
-      crm: false,
-      webhooks: false,
-      nightlyAgent: true,
-      hubspotConnected: false,
-    },
-  };
-}
+import { STARTING_CREDITS } from "./types";
 
 interface AuthContextValue {
   user: User | null;
   loading: boolean;
-  authMode: "supabase" | "local";
+  token: string | null;
   login: (email: string, password: string) => Promise<string | null>;
   register: (name: string, email: string, password: string, company: string) => Promise<string | null>;
   logout: () => Promise<void>;
   updateUser: (updates: Partial<User>) => void;
-  refreshUser: () => void;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
+  const [token, setToken] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  const authMode: "supabase" | "local" = isSupabaseAuthEnabled() ? "supabase" : "local";
 
-  const refreshUser = useCallback(() => {
-    const found = loadLocalSessionUser();
-    if (found) {
-      setUser(found);
-      return;
-    }
-    if (authMode === "local") setUser(null);
-  }, [authMode]);
-
+  // Initialize on mount - check if token exists in sessionStorage
   useEffect(() => {
-    ensureDemoUser();
-
     async function init() {
-      if (authMode === "supabase") {
-        try {
-          const supabase = createClient();
-          const { data } = await supabase.auth.getSession();
-          if (data.session?.user) {
-            setCachedToken(data.session.access_token);
-            setUser(
-              userFromSupabaseSession(
-                data.session.user.id,
-                data.session.user.email ?? "",
-                data.session.user.user_metadata
-              )
-            );
-          } else {
-            const localUser = loadLocalSessionUser();
-            if (localUser) setUser(localUser);
-          }
-          supabase.auth.onAuthStateChange((_event, session) => {
-            if (session?.user) {
-              setCachedToken(session.access_token);
-              setUser(
-                userFromSupabaseSession(
-                  session.user.id,
-                  session.user.email ?? "",
-                  session.user.user_metadata
-                )
-              );
-            } else {
-              setCachedToken(null);
-              const localUser = loadLocalSessionUser();
-              setUser(localUser);
-            }
-          });
-        } catch {
-          refreshUser();
+      try {
+        // Only use sessionStorage (not localStorage) for temporary session
+        const savedToken = typeof window !== "undefined" ? sessionStorage.getItem("auth_token") : null;
+
+        if (savedToken) {
+          setToken(savedToken);
+          // Could fetch user details here if needed, but token is enough
         }
-      } else {
-        refreshUser();
+      } catch (err) {
+        console.error("Auth init error:", err);
+      } finally {
+        setLoading(false);
       }
-      setLoading(false);
     }
 
     init();
-  }, [authMode, refreshUser]);
+  }, []);
 
   const login = useCallback(
     async (email: string, password: string): Promise<string | null> => {
-      if (authMode === "supabase") {
-        const normalizedEmail = email.trim().toLowerCase();
-        try {
-          const supabase = createClient();
+      try {
+        const response = await fetch("/api/auth/login", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email, password }),
+        });
 
-          if (isDemoCredentials(normalizedEmail, password)) {
-            try {
-              await fetch("/api/auth/ensure-demo", { method: "POST" });
-            } catch {
-              /* best-effort */
-            }
-          }
-
-          const { data, error } = await supabase.auth.signInWithPassword({
-            email: normalizedEmail,
-            password,
-          });
-          if (error) {
-            if (isDemoCredentials(normalizedEmail, password)) {
-              const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
-                email: normalizedEmail,
-                password,
-                options: {
-                  data: { name: "Levi Kempen", company: "Legacy Scale Models" },
-                },
-              });
-              if (!signUpError && signUpData.session?.user) {
-                setCachedToken(signUpData.session.access_token);
-                setUser(
-                  userFromSupabaseSession(
-                    signUpData.session.user.id,
-                    signUpData.session.user.email ?? "",
-                    signUpData.session.user.user_metadata
-                  )
-                );
-                return null;
-              }
-              if (applyLocalDemoSession(setUser)) return null;
-            }
-            return error.message;
-          }
-          if (data.session) setCachedToken(data.session.access_token);
-          if (data.user) {
-            setUser(
-              userFromSupabaseSession(data.user.id, data.user.email ?? "", data.user.user_metadata)
-            );
-          }
-          return null;
-        } catch (e) {
-          if (isDemoCredentials(email, password) && applyLocalDemoSession(setUser)) return null;
-          return e instanceof Error ? e.message : "Login mislukt";
+        if (!response.ok) {
+          const data = await response.json();
+          return data.error || "Login failed";
         }
-      }
 
-      ensureDemoUser();
-      const found = loadUsers().find(
-        (u) => u.email.toLowerCase() === email.toLowerCase() && u.password === password
-      );
-      if (!found) return "Onjuist e-mailadres of wachtwoord.";
-      localStorage.setItem(SESSION_KEY, found.id);
-      setUser(found);
-      return null;
+        const data = await response.json();
+        const { user: userData, token: authToken } = data;
+
+        // Store token in sessionStorage only (temporary, not persistent)
+        if (typeof window !== "undefined") {
+          sessionStorage.setItem("auth_token", authToken);
+        }
+
+        setToken(authToken);
+        setUser(userData);
+        return null;
+      } catch (error) {
+        return "Login failed: " + (error as Error).message;
+      }
     },
-    [authMode]
+    []
   );
 
   const register = useCallback(
-    async (name: string, email: string, password: string, company: string): Promise<string | null> => {
-      if (!name.trim() || !email.trim() || !password.trim()) {
-        return "Vul alle velden in.";
-      }
-      if (password.length < 6) return "Wachtwoord moet minimaal 6 tekens zijn.";
+    async (
+      name: string,
+      email: string,
+      password: string,
+      company: string
+    ): Promise<string | null> => {
+      try {
+        const response = await fetch("/api/auth/register", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email, password, name, company }),
+        });
 
-      if (authMode === "supabase") {
-        try {
-          const supabase = createClient();
-          const { data, error } = await supabase.auth.signUp({
-            email,
-            password,
-            options: {
-              data: { name: name.trim(), company: company.trim() || "Legacy Scale Models" },
-            },
-          });
-          if (error) return error.message;
-          if (data.session && data.user) {
-            setCachedToken(data.session.access_token);
-            setUser(
-              userFromSupabaseSession(data.user.id, data.user.email ?? "", data.user.user_metadata)
-            );
-          }
-          return null;
-        } catch (e) {
-          return e instanceof Error ? e.message : "Registratie mislukt";
+        if (!response.ok) {
+          const data = await response.json();
+          return data.error || "Registration failed";
         }
-      }
 
-      ensureDemoUser();
-      const users = loadUsers();
-      if (users.find((u) => u.email.toLowerCase() === email.toLowerCase())) {
-        return "Dit e-mailadres is al geregistreerd.";
+        const data = await response.json();
+        const { user: userData, token: authToken } = data;
+
+        // Store token in sessionStorage only
+        if (typeof window !== "undefined") {
+          sessionStorage.setItem("auth_token", authToken);
+        }
+
+        setToken(authToken);
+        setUser(userData);
+        return null;
+      } catch (error) {
+        return "Registration failed: " + (error as Error).message;
       }
-      const newUser: User = {
-        id: generateId(),
-        email: email.toLowerCase(),
-        password,
-        name: name.trim(),
-        company: company.trim() || "Legacy Scale Models",
-        credits: STARTING_CREDITS,
-        workspaceId: DEFAULT_WORKSPACE_ID,
-        transactions: [
-          {
-            id: generateId(),
-            type: "bonus",
-            amount: STARTING_CREDITS,
-            description: "Welkomstbonus",
-            createdAt: new Date().toISOString(),
-          },
-        ],
-        integrations: {
-          linkedin: false,
-          crm: false,
-          webhooks: false,
-          nightlyAgent: true,
-          hubspotConnected: false,
-        },
-      };
-      users.push(newUser);
-      saveUsers(users);
-      localStorage.setItem(SESSION_KEY, newUser.id);
-      setUser(newUser);
-      return null;
     },
-    [authMode]
+    []
   );
 
   const logout = useCallback(async () => {
-    if (authMode === "supabase") {
-      try {
-        const supabase = createClient();
-        await supabase.auth.signOut();
-      } catch {
-        /* ignore */
-      }
+    // Clear sessionStorage
+    if (typeof window !== "undefined") {
+      sessionStorage.removeItem("auth_token");
     }
-    localStorage.removeItem(SESSION_KEY);
-    setCachedToken(null);
+    setToken(null);
     setUser(null);
-  }, [authMode]);
+  }, []);
 
-  const updateUser = useCallback(
-    (updates: Partial<User>) => {
-      if (!user) return;
-      if (authMode === "local") {
-        const users = loadUsers();
-        const idx = users.findIndex((u) => u.id === user.id);
-        if (idx === -1) return;
-        const updated = { ...users[idx], ...updates };
-        users[idx] = updated;
-        saveUsers(users);
-        setUser(updated);
-      } else {
-        setUser({ ...user, ...updates });
-      }
-    },
-    [user, authMode]
+  const updateUser = useCallback((updates: Partial<User>) => {
+    setUser((prev) => {
+      if (!prev) return null;
+      return { ...prev, ...updates };
+    });
+  }, []);
+
+  return (
+    <AuthContext.Provider value={{ user, loading, token, login, register, logout, updateUser }}>
+      {children}
+    </AuthContext.Provider>
   );
-
-  const value = useMemo(
-    () => ({ user, loading, authMode, login, register, logout, updateUser, refreshUser }),
-    [user, loading, authMode, login, register, logout, updateUser, refreshUser]
-  );
-
-  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 
 export function useAuth() {
   const ctx = useContext(AuthContext);
-  if (!ctx) throw new Error("useAuth must be used within AuthProvider");
+  if (!ctx) {
+    throw new Error("useAuth must be used within AuthProvider");
+  }
   return ctx;
-}
-
-export function getDataKey(userId: string): string {
-  return `legacy-leadgen-data-${userId}`;
 }

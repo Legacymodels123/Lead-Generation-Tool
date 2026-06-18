@@ -3,7 +3,8 @@
 import { useState } from "react";
 import type { Lead, LeadStatus } from "@/lib/types";
 import { useApp } from "@/lib/store";
-import { FLAGS, STATUS_CLASS, STATUS_LABELS, scoreColor } from "@/lib/utils";
+import { FLAGS, STATUS_CLASS, scoreColor } from "@/lib/utils";
+import { STATUS_LABELS } from "@/lib/types";
 
 interface Props {
   lead: Lead;
@@ -105,7 +106,7 @@ export default function LeadDetailPanel({ lead, onClose }: Props) {
         <div className="panel-section">
           <div className="panel-section-title">Status wijzigen</div>
           <div className="status-buttons">
-            {(["nieuw", "bekeken", "verstuurd", "opvolgen", "gewonnen", "verloren"] as LeadStatus[]).map(
+            {(["qualified", "not_qualified"] as LeadStatus[]).map(
               (s) => (
                 <button
                   key={s}

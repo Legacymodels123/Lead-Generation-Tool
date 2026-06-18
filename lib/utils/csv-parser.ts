@@ -145,7 +145,7 @@ export function parseLinkedInCSV(file: File): Promise<Partial<Lead>[]> {
             linkedinUrl: row.linkedinUrl ?? "",
             linkedinCompanyUrl: row.linkedinCompanyUrl ?? "",
             website: row.website ?? "",
-            status: "nieuw",
+            status: "not_qualified",
             notes: "Geïmporteerd via LinkedIn Sales Navigator CSV",
           });
         }
