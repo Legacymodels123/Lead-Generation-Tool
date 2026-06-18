@@ -1,6 +1,8 @@
 import type { Batch, Contact, Lead } from "@/lib/types";
 import { DEFAULT_WORKSPACE_ID } from "@/lib/types";
-import { defaultContactsForAccount, normalizeLead } from "@/lib/utils/contacts";
+import { defaultContactsForAccount, normalizeLead, syncPrimaryContactFields } from "@/lib/utils/contacts";
+import { fitScore } from "@/lib/utils";
+import { generateId } from "@/lib/utils";
 
 export interface LeadRow {
   id: string;
@@ -28,6 +30,7 @@ export interface LeadRow {
   ai_message: string | null;
   ai_summary: string | null;
   ai_next_step: string | null;
+  custom_column_values?: Record<string, unknown> | null;
 }
 
 export interface ContactRow {
@@ -128,6 +131,7 @@ export function leadToRow(lead: Lead, userId: string): LeadRow {
     ai_message: lead.aiMessage ?? null,
     ai_summary: lead.aiSummary ?? null,
     ai_next_step: lead.aiNextStep ?? null,
+    custom_column_values: lead.customValues ?? {},
   };
 }
 
@@ -157,6 +161,7 @@ export function rowToLead(row: LeadRow, contacts: Contact[] = []): Lead {
     aiMessage: row.ai_message ?? undefined,
     aiSummary: row.ai_summary ?? undefined,
     aiNextStep: row.ai_next_step ?? undefined,
+    customValues: (row.custom_column_values as Record<string, string> | null) ?? undefined,
     contacts: contacts.length ? contacts : defaultContactsForAccount({ id: row.id, contactName: row.contact_name, contactTitle: row.contact_title, linkedinUrl: row.linkedin_url }),
   });
   return base;
@@ -228,4 +233,78 @@ export async function saveContactsForLead(
   if (lead.contacts.length) {
     await supabase.from("contacts").insert(lead.contacts.map((c) => contactToRow(c, userId)));
   }
+}
+
+export async function createLeadInDb(
+  supabase: NonNullable<ReturnType<typeof import("@/lib/supabase/admin").createAdminClient>>,
+  userId: string,
+  workspaceId: string,
+  input: Omit<Lead, "id" | "workspaceId"> & { id?: string }
+): Promise<Lead> {
+  const id = input.id ?? generateId();
+  const normalized = syncPrimaryContactFields(
+    normalizeLead({ ...input, id, workspaceId } as Lead)
+  );
+  normalized.score = fitScore(normalized);
+
+  const row = {
+    ...leadToRow(normalized, userId),
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  };
+
+  const { error } = await supabase.from("leads").insert(row);
+  if (error) throw new Error(error.message);
+
+  await saveContactsForLead(supabase, userId, normalized);
+  return normalized;
+}
+
+export async function updateLeadInDb(
+  supabase: NonNullable<ReturnType<typeof import("@/lib/supabase/admin").createAdminClient>>,
+  userId: string,
+  leadId: string,
+  updates: Partial<Lead>
+): Promise<Lead | null> {
+  const all = await loadLeadsWithContacts(supabase, userId);
+  const existing = all.find((l) => l.id === leadId);
+  if (!existing) return null;
+
+  const merged = syncPrimaryContactFields(
+    normalizeLead({ ...existing, ...updates, id: leadId })
+  );
+  merged.score = fitScore(merged);
+
+  const row = {
+    ...leadToRow(merged, userId),
+    updated_at: new Date().toISOString(),
+  };
+
+  const { data, error } = await supabase
+    .from("leads")
+    .update(row)
+    .eq("id", leadId)
+    .eq("user_id", userId)
+    .select()
+    .single();
+
+  if (error) throw new Error(error.message);
+
+  await saveContactsForLead(supabase, userId, merged);
+  return rowToLead(data as LeadRow, merged.contacts);
+}
+
+export async function seedLeadsToDbIfEmpty(
+  supabase: NonNullable<ReturnType<typeof import("@/lib/supabase/admin").createAdminClient>>,
+  userId: string,
+  workspaceId: string,
+  seedLeads: Lead[]
+): Promise<void> {
+  const existing = await loadLeadsWithContacts(supabase, userId);
+  if (existing.length > 0) return;
+
+    for (const lead of seedLeads) {
+      const { workspaceId: _ws, ...rest } = lead;
+      await createLeadInDb(supabase, userId, workspaceId, rest);
+    }
 }

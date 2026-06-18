@@ -95,7 +95,7 @@ export async function GET(request: NextRequest) {
   const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
   if (!supabaseUrl || !supabaseServiceKey) {
-    return NextResponse.redirect(new URL("/integrations-new?error=supabase_not_configured", request.url));
+    return NextResponse.redirect(new URL("/integrations?error=supabase_not_configured", request.url));
   }
 
   const supabase = createClient(supabaseUrl, supabaseServiceKey);
@@ -107,23 +107,23 @@ export async function GET(request: NextRequest) {
 
   // Handle OAuth errors
   if (error) {
-    const returnUrl = new URL("/integrations-new?error=oauth_failed", request.url);
+    const returnUrl = new URL("/integrations?error=oauth_failed", request.url);
     returnUrl.searchParams.set("error_detail", errorDescription || error);
     return NextResponse.redirect(returnUrl);
   }
 
   if (!code || !state) {
-    return NextResponse.redirect(new URL("/integrations-new?error=missing_code", request.url));
+    return NextResponse.redirect(new URL("/integrations?error=missing_code", request.url));
   }
 
   const stateData = parseState(state);
   if (!stateData) {
-    return NextResponse.redirect(new URL("/integrations-new?error=invalid_state", request.url));
+    return NextResponse.redirect(new URL("/integrations?error=invalid_state", request.url));
   }
 
   // Verify state is recent (within 10 minutes)
   if (Date.now() - stateData.timestamp > 10 * 60 * 1000) {
-    return NextResponse.redirect(new URL("/integrations-new?error=state_expired", request.url));
+    return NextResponse.redirect(new URL("/integrations?error=state_expired", request.url));
   }
 
   const { provider, workspaceId, redirectTo } = stateData;
@@ -133,7 +133,7 @@ export async function GET(request: NextRequest) {
   const token = await exchangeCodeForToken(provider, code, redirectUri);
   if (!token) {
     return NextResponse.redirect(
-      new URL("/integrations-new?error=token_exchange_failed", request.url)
+      new URL("/integrations?error=token_exchange_failed", request.url)
     );
   }
 
@@ -146,7 +146,7 @@ export async function GET(request: NextRequest) {
 
   if (fetchError) {
     return NextResponse.redirect(
-      new URL("/integrations-new?error=workspace_not_found", request.url)
+      new URL("/integrations?error=workspace_not_found", request.url)
     );
   }
 
@@ -173,13 +173,13 @@ export async function GET(request: NextRequest) {
 
   if (updateError) {
     return NextResponse.redirect(
-      new URL("/integrations-new?error=config_save_failed", request.url)
+      new URL("/integrations?error=config_save_failed", request.url)
     );
   }
 
   // Redirect back to integrations with success message
   const returnUrl = new URL(
-    redirectTo || "/integrations-new",
+    redirectTo || "/integrations",
     request.url
   );
   returnUrl.searchParams.set("oauth_success", provider);

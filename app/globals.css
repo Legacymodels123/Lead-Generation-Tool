@@ -1,5 +1,3 @@
-@import url('https://fonts.googleapis.com/css2?family=Montserrat:wght@400;500;600;700;800&family=Audiowide&display=swap');
-
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
 :root {
@@ -21,7 +19,7 @@
 html, body { height: 100%; }
 
 body {
-  font-family: 'Montserrat', sans-serif;
+  font-family: var(--font-sans), system-ui, -apple-system, sans-serif;
   background: var(--gray2);
   color: var(--text);
 }
@@ -291,7 +289,7 @@ td { padding: 11px 14px; vertical-align: middle; }
   outline: none;
   padding: 0 8px;
   font-size: 11px;
-  font-family: "Segoe UI", Calibri, "Montserrat", sans-serif;
+  font-family: inherit;
   background: #fff;
 }
 
@@ -306,7 +304,7 @@ td { padding: 11px 14px; vertical-align: middle; }
 .excel-grid {
   border-collapse: collapse;
   table-layout: fixed;
-  font-family: "Segoe UI", Calibri, "Montserrat", sans-serif;
+  font-family: inherit;
   font-size: 11px;
   background: #fff;
 }
@@ -1126,6 +1124,29 @@ td { padding: 11px 14px; vertical-align: middle; }
   flex-direction: column;
   color: #a3a3a3;
   font-size: 12px;
+  transition: width 0.2s ease;
+}
+.bl-sidebar-collapsed {
+  width: 56px;
+}
+.bl-collapse-btn {
+  background: transparent;
+  border: 1px solid #262626;
+  border-radius: 4px;
+  color: #a3a3a3;
+  cursor: pointer;
+  font-size: 11px;
+  margin-bottom: 8px;
+  padding: 4px 8px;
+  width: 100%;
+}
+.bl-collapse-btn:hover { border-color: #404040; color: #fff; }
+.bl-sidebar-collapsed .bl-collapse-btn { padding: 4px; }
+.bl-sidebar-skeleton {
+  height: 48px;
+  margin: 12px;
+  background: #1a1a1a;
+  border-radius: 6px;
 }
 .bl-sidebar-head {
   padding: 14px 12px 10px;
@@ -1198,6 +1219,99 @@ td { padding: 11px 14px; vertical-align: middle; }
   flex-direction: column;
   overflow: hidden;
   background: #111;
+}
+
+.bl-companies-panel {
+  width: 240px;
+  flex-shrink: 0;
+  background: #fafafa;
+  border-left: 1px solid #e5e5e5;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.bl-companies-panel-collapsed {
+  width: 28px;
+  align-items: center;
+  justify-content: flex-start;
+  padding-top: 8px;
+}
+.bl-companies-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px;
+  border-bottom: 1px solid #e5e5e5;
+}
+.bl-companies-title { font-size: 12px; font-weight: 600; color: #333; }
+.bl-panel-collapse,
+.bl-panel-expand {
+  background: transparent;
+  border: none;
+  color: #666;
+  cursor: pointer;
+  font-size: 11px;
+  padding: 4px;
+}
+.bl-companies-search { padding: 8px 10px; }
+.bl-companies-search input {
+  width: 100%;
+  border: 1px solid #e5e5e5;
+  border-radius: 6px;
+  font-size: 11px;
+  padding: 6px 8px;
+  font-family: inherit;
+}
+.bl-companies-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 4px 8px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.bl-company-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  width: 100%;
+  text-align: left;
+  padding: 8px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  cursor: pointer;
+  font-family: inherit;
+}
+.bl-company-item:hover { background: #f0f0f0; }
+.bl-company-item.active {
+  background: #e8f4ec;
+  box-shadow: inset 3px 0 0 #217346;
+}
+.bl-company-flag { font-size: 13px; flex-shrink: 0; }
+.bl-company-meta { min-width: 0; flex: 1; }
+.bl-company-name {
+  display: block;
+  font-size: 12px;
+  font-weight: 600;
+  color: #111;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.bl-company-market {
+  display: block;
+  font-size: 10px;
+  color: #666;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.bl-companies-empty {
+  padding: 16px;
+  text-align: center;
+  color: #999;
+  font-size: 11px;
 }
 
 /* ── WORKSHEET (tight Excel-style) ── */
@@ -1280,3 +1394,202 @@ body.grid-filling {
   cursor: crosshair !important;
   user-select: none;
 }
+
+/* Sheet body + property drawer */
+.sheet-body-row {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+.sheet-body-row .sheet-body {
+  flex: 1;
+  min-width: 0;
+}
+
+.column-property-drawer {
+  width: 0;
+  flex-shrink: 0;
+  background: #fafafa;
+  border-left: 1px solid #e5e5e5;
+  overflow: hidden;
+  transition: width 0.22s ease;
+  display: flex;
+  flex-direction: column;
+}
+.column-property-drawer.open {
+  width: 300px;
+}
+.column-property-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 12px;
+  border-bottom: 1px solid #e5e5e5;
+}
+.column-property-head h3 { font-size: 13px; font-weight: 600; }
+.column-property-close {
+  background: transparent;
+  border: none;
+  font-size: 18px;
+  cursor: pointer;
+  color: #666;
+}
+.column-property-body {
+  padding: 12px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.column-property-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 11px;
+}
+.column-property-field input,
+.column-property-field select,
+.column-property-field textarea {
+  border: 1px solid #e5e5e5;
+  border-radius: 6px;
+  font-size: 12px;
+  padding: 6px 8px;
+  font-family: inherit;
+}
+.column-property-type-badge {
+  font-size: 11px;
+  color: #666;
+  background: #f0f0f0;
+  padding: 4px 8px;
+  border-radius: 4px;
+  width: fit-content;
+}
+.column-property-options {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-bottom: 6px;
+}
+.column-property-option {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  background: #fff;
+  border: 1px solid #e5e5e5;
+  border-radius: 4px;
+  padding: 2px 6px;
+  font-size: 11px;
+}
+.column-property-option button {
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  color: #999;
+}
+.column-property-add-option {
+  display: flex;
+  gap: 4px;
+}
+.column-property-add-option input { flex: 1; }
+.column-property-section { margin-top: 4px; }
+.column-property-check {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+}
+.column-property-condition {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 8px;
+}
+.column-property-hint { font-size: 10px; color: #888; margin-top: 4px; }
+.column-property-error { color: #b91c1c; font-size: 11px; }
+.column-property-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.property-add-dropdown { position: relative; }
+.property-add-menu {
+  position: absolute;
+  top: 100%;
+  right: 0;
+  margin-top: 4px;
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0,0,0,.1);
+  z-index: 40;
+  min-width: 180px;
+  padding: 4px;
+}
+.property-add-menu button {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 8px 10px;
+  border: none;
+  background: transparent;
+  font-size: 12px;
+  cursor: pointer;
+  border-radius: 4px;
+  font-family: inherit;
+}
+.property-add-menu button:hover { background: #f5f5f5; }
+
+.excel-cell-hidden { opacity: 0.35; }
+
+.column-picker-custom { color: #888; font-size: 10px; }
+
+.integrations-page,
+.settings-connections {
+  padding: 20px;
+  overflow-y: auto;
+  height: 100%;
+  background: #fff;
+}
+.integrations-page-head h1 { font-size: 20px; font-weight: 700; margin-bottom: 4px; }
+.integrations-page-head p { font-size: 13px; color: #666; margin-bottom: 20px; }
+.page-loading { padding: 20px; color: #888; }
+
+.connections-hub { max-width: 900px; }
+.connections-title { font-size: 15px; font-weight: 600; margin: 16px 0 6px; }
+.connections-title-mcp { margin-top: 28px; }
+.connections-sub { font-size: 12px; color: #666; margin-bottom: 12px; }
+.connections-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 12px;
+}
+.connection-card {
+  border: 1px solid #e5e5e5;
+  border-radius: 8px;
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  background: #fafafa;
+}
+.connection-card-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 13px;
+}
+.connection-status {
+  font-size: 10px;
+  padding: 2px 6px;
+  border-radius: 8px;
+  background: #f3f4f6;
+  color: #666;
+}
+.connection-status.on { background: #dcfce7; color: #166534; }
+.connection-card-actions { display: flex; gap: 6px; }
+.mcp-url { font-size: 11px; color: #666; word-break: break-all; }
+.connections-message { font-size: 12px; color: #166534; margin-top: 12px; }
+.connections-loading { padding: 12px; font-size: 12px; color: #888; }
+.connections-hub-compact .connections-grid { grid-template-columns: 1fr; }

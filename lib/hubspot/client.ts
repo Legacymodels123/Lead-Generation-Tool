@@ -63,22 +63,26 @@ export class HubSpotClient {
     };
 
     if (lead.hubspotCompanyId) {
-      await this.request("PATCH", `/crm/v3/objects/companies/${lead.hubspotCompanyId}`, {
-        properties,
-      });
+      await this.updateCompanyProperties(lead.hubspotCompanyId, properties);
       return { id: lead.hubspotCompanyId, created: false };
     }
 
     const existing = await this.searchCompanyByName(lead.company);
     if (existing) {
-      await this.request("PATCH", `/crm/v3/objects/companies/${existing}`, { properties });
+      await this.updateCompanyProperties(existing, properties);
       return { id: existing, created: false };
     }
 
-    const created = await this.request<{ id: string }>("POST", "/crm/v3/objects/companies", {
-      properties,
-    });
+    const created = await this.createCompany(properties);
     return { id: created.id, created: true };
+  }
+
+  async createCompany(properties: Record<string, string>): Promise<{ id: string }> {
+    return this.request<{ id: string }>("POST", "/crm/v3/objects/companies", { properties });
+  }
+
+  async updateCompanyProperties(companyId: string, properties: Record<string, string>): Promise<void> {
+    await this.request("PATCH", `/crm/v3/objects/companies/${companyId}`, { properties });
   }
 
   async createOrUpdateContact(
@@ -133,6 +137,6 @@ export class HubSpotClient {
   }
 }
 
-export function isHubSpotConfigured(): boolean {
-  return Boolean(process.env.HUBSPOT_ACCESS_TOKEN);
+export function isHubSpotConfigured(token?: string | null): boolean {
+  return Boolean(token || process.env.HUBSPOT_ACCESS_TOKEN);
 }

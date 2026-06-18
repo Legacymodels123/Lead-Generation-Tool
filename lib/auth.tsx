@@ -28,16 +28,42 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [token, setToken] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
-  // Initialize on mount - check if token exists in sessionStorage
+  // Initialize on mount - restore session from token
   useEffect(() => {
     async function init() {
       try {
-        // Only use sessionStorage (not localStorage) for temporary session
-        const savedToken = typeof window !== "undefined" ? sessionStorage.getItem("auth_token") : null;
+        const savedToken =
+          typeof window !== "undefined" ? sessionStorage.getItem("auth_token") : null;
 
-        if (savedToken) {
-          setToken(savedToken);
-          // Could fetch user details here if needed, but token is enough
+        if (!savedToken) return;
+
+        setToken(savedToken);
+
+        const cachedUser =
+          typeof window !== "undefined" ? sessionStorage.getItem("auth_user") : null;
+        if (cachedUser) {
+          try {
+            setUser(JSON.parse(cachedUser) as User);
+          } catch {
+            /* ignore */
+          }
+        }
+
+        const response = await fetch("/api/auth/me", {
+          headers: { Authorization: `Bearer ${savedToken}` },
+        });
+
+        if (response.ok) {
+          const data = await response.json();
+          setUser(data.user);
+          if (typeof window !== "undefined") {
+            sessionStorage.setItem("auth_user", JSON.stringify(data.user));
+          }
+        } else {
+          sessionStorage.removeItem("auth_token");
+          sessionStorage.removeItem("auth_user");
+          setToken(null);
+          setUser(null);
         }
       } catch (err) {
         console.error("Auth init error:", err);
@@ -69,6 +95,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         // Store token in sessionStorage only (temporary, not persistent)
         if (typeof window !== "undefined") {
           sessionStorage.setItem("auth_token", authToken);
+          sessionStorage.setItem("auth_user", JSON.stringify(userData));
         }
 
         setToken(authToken);
@@ -106,6 +133,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         // Store token in sessionStorage only
         if (typeof window !== "undefined") {
           sessionStorage.setItem("auth_token", authToken);
+          sessionStorage.setItem("auth_user", JSON.stringify(userData));
         }
 
         setToken(authToken);
@@ -122,6 +150,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // Clear sessionStorage
     if (typeof window !== "undefined") {
       sessionStorage.removeItem("auth_token");
+      sessionStorage.removeItem("auth_user");
     }
     setToken(null);
     setUser(null);
