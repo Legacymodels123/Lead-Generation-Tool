@@ -5,6 +5,7 @@ import {
   useCallback,
   useContext,
   useEffect,
+  useRef,
   useState,
   type ReactNode,
 } from "react";
@@ -20,7 +21,7 @@ interface AppContextValue {
   batches: Batch[];
   toast: string | null;
   showToast: (msg: string) => void;
-  updateLead: (id: string, updates: Partial<Lead>) => void;
+  updateLead: (id: string, updates: Partial<Lead>, immediate?: boolean) => void;
   updateContact: (leadId: string, contactId: string, updates: Partial<Contact>) => void;
   toggleExpand: (id: string) => void;
   addLead: (lead: Omit<Lead, "id" | "workspaceId">) => Promise<string | null>;
@@ -81,13 +82,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
     refetchLeads();
   }, [token, refetchLeads]);
 
-  const updateLead = useCallback(
-    async (id: string, updates: Partial<Lead>) => {
-      if (!token) return;
+  const saveTimersRef = useRef(new Map<string, ReturnType<typeof setTimeout>>());
+  const pendingUpdatesRef = useRef(new Map<string, Partial<Lead>>());
 
-      setLeads((prev) =>
-        prev.map((lead) => (lead.id === id ? { ...lead, ...updates } : lead))
-      );
+  const flushLeadSave = useCallback(
+    async (id: string) => {
+      if (!token) return;
+      const updates = pendingUpdatesRef.current.get(id);
+      if (!updates) return;
+      pendingUpdatesRef.current.delete(id);
 
       try {
         const response = await fetch("/api/leads", {
@@ -95,28 +98,62 @@ export function AppProvider({ children }: { children: ReactNode }) {
           headers: authHeaders(),
           body: JSON.stringify({ leadId: id, ...updates }),
         });
-
         if (!response.ok) {
-          showToast("Failed to update lead");
+          showToast("Failed to save");
           await refetchLeads();
         }
       } catch (error) {
         console.error("Failed to update lead:", error);
-        showToast("Error updating lead");
+        showToast("Error saving");
         await refetchLeads();
       }
     },
     [token, authHeaders, showToast, refetchLeads]
   );
 
+  const updateLead = useCallback(
+    (id: string, updates: Partial<Lead>, immediate = false) => {
+      if (!token) return;
+
+      setLeads((prev) =>
+        prev.map((lead) => (lead.id === id ? { ...lead, ...updates } : lead))
+      );
+
+      pendingUpdatesRef.current.set(id, {
+        ...pendingUpdatesRef.current.get(id),
+        ...updates,
+      });
+
+      const existing = saveTimersRef.current.get(id);
+      if (existing) clearTimeout(existing);
+
+      if (immediate) {
+        void flushLeadSave(id);
+        return;
+      }
+
+      saveTimersRef.current.set(
+        id,
+        setTimeout(() => {
+          saveTimersRef.current.delete(id);
+          void flushLeadSave(id);
+        }, 300)
+      );
+    },
+    [token, flushLeadSave]
+  );
+
+  const leadsRef = useRef(leads);
+  leadsRef.current = leads;
+
   const updateContact = useCallback(
     (leadId: string, contactId: string, updates: Partial<Contact>) => {
-      const lead = leads.find((l) => l.id === leadId);
+      const lead = leadsRef.current.find((l) => l.id === leadId);
       if (!lead) return;
       const next = updateContactInLead(lead, contactId, updates);
-      updateLead(leadId, { contacts: next.contacts });
+      updateLead(leadId, { contacts: next.contacts }, true);
     },
-    [leads, updateLead]
+    [updateLead]
   );
 
   const toggleExpand = useCallback((id: string) => {
