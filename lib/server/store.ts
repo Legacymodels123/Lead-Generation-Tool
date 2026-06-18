@@ -1,4 +1,5 @@
 import type { User, Lead } from "@/lib/types";
+import { SEED_LEADS } from "@/lib/seed-data";
 
 // In-memory store for development (replace with database in production)
 interface Store {
@@ -41,6 +42,13 @@ const demoUser: User = {
 
 globalStore.users.set(demoUser.email, demoUser);
 globalStore.sessions.set(Buffer.from(demoUser.id).toString("base64"), demoUser.id);
+
+for (const lead of SEED_LEADS) {
+  globalStore.leads.set(lead.id, {
+    ...lead,
+    workspaceId: demoUser.workspaceId!,
+  });
+}
 
 export function getUserByEmail(email: string): User | undefined {
   return globalStore.users.get(email);
