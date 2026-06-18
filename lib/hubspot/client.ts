@@ -117,6 +117,20 @@ export class HubSpotClient {
       [{ associationCategory: "HUBSPOT_DEFINED", associationTypeId: 1 }]
     );
   }
+
+  async createCompanyNote(companyId: string, body: string): Promise<void> {
+    const note = await this.request<{ id: string }>("POST", "/crm/v3/objects/notes", {
+      properties: {
+        hs_timestamp: new Date().toISOString(),
+        hs_note_body: body,
+      },
+    });
+    await this.request(
+      "PUT",
+      `/crm/v4/objects/notes/${note.id}/associations/companies/${companyId}`,
+      [{ associationCategory: "HUBSPOT_DEFINED", associationTypeId: 190 }]
+    );
+  }
 }
 
 export function isHubSpotConfigured(): boolean {

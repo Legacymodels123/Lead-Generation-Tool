@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { getAuthFromRequest } from "@/lib/auth-server";
 import { loadLeadsWithContacts, leadToRow, saveContactsForLead } from "@/lib/data/leads-db";
 import { applyHubSpotSyncToLead, syncLeadsToHubSpot } from "@/lib/hubspot/sync";
-import { isHubSpotConfigured } from "@/lib/hubspot/client";
+import { HubSpotClient, isHubSpotConfigured } from "@/lib/hubspot/client";
 import { createAdminClient } from "@/lib/supabase/admin";
 import type { Lead } from "@/lib/types";
 import { normalizeLead } from "@/lib/utils/contacts";
@@ -19,8 +19,12 @@ export async function POST(req: NextRequest) {
     );
   }
 
-  const body = (await req.json()) as { leadIds: string[]; leads?: Lead[] };
-  const { leadIds } = body;
+  const body = (await req.json()) as {
+    leadIds: string[];
+    leads?: Lead[];
+    includeTimelineNote?: boolean;
+  };
+  const { leadIds, includeTimelineNote } = body;
   if (!leadIds?.length) {
     return NextResponse.json({ error: "Geen leads geselecteerd" }, { status: 400 });
   }
@@ -63,6 +67,20 @@ export async function POST(req: NextRequest) {
 
     const synced = applyHubSpotSyncToLead(lead, item.result!);
     updated.push(synced);
+
+    if (includeTimelineNote && synced.aiSummary && item.result?.companyId) {
+      try {
+        const client = new HubSpotClient();
+        const noteBody = [
+          synced.aiSummary,
+          synced.fitReason ? `\n\nFit: ${synced.fitReason}` : "",
+          synced.score != null ? `\n\nICP score: ${synced.score}%` : "",
+        ].join("");
+        await client.createCompanyNote(item.result.companyId, noteBody);
+      } catch {
+        /* note is optional */
+      }
+    }
 
     if (supabase) {
       await supabase

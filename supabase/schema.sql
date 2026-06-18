@@ -100,6 +100,12 @@ create table if not exists public.hubspot_sync_log (
   created_at timestamptz not null default now()
 );
 
+create table if not exists public.user_settings (
+  user_id text primary key,
+  settings jsonb not null default '{}',
+  updated_at timestamptz not null default now()
+);
+
 -- Workspace configuration (API keys, columns, settings)
 alter table public.workspaces add column if not exists config jsonb default '{"apiKeys":{}, "columns":[], "leadStatuses":["qualified","not_qualified"]}'::jsonb;
 
@@ -107,6 +113,7 @@ alter table public.workspaces add column if not exists config jsonb default '{"a
 alter table public.leads add column if not exists source text default 'manual';
 alter table public.leads add column if not exists legacy_status text;
 alter table public.leads add column if not exists ai_qualification_score integer;
+
 
 -- Migration for existing projects
 alter table public.leads add column if not exists workspace_id text not null default 'legacy-scale-models';
@@ -147,6 +154,9 @@ alter table public.batches enable row level security;
 alter table public.workspaces enable row level security;
 alter table public.enrichment_jobs enable row level security;
 alter table public.hubspot_sync_log enable row level security;
+alter table public.user_settings enable row level security;
+
+create policy "user_settings_all" on public.user_settings for all using (true) with check (true);
 
 create policy "leads_all" on public.leads for all using (true) with check (true);
 create policy "contacts_all" on public.contacts for all using (true) with check (true);

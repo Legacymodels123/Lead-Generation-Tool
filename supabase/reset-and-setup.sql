@@ -138,3 +138,4 @@ create policy "batches_all" on public.batches for all using (true) with check (t
 create policy "workspaces_all" on public.workspaces for all using (true) with check (true);
 create policy "enrichment_jobs_all" on public.enrichment_jobs for all using (true) with check (true);
 create policy "hubspot_sync_log_all" on public.hubspot_sync_log for all using (true) with check (true);
+git push -u origin claude/upbeat-meitner-tcjaqt

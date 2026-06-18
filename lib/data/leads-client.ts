@@ -105,12 +105,13 @@ export async function enrichLeadsCloud(
 export async function syncHubSpotCloud(
   userId: string,
   leadIds: string[],
-  leads?: Lead[]
+  leads?: Lead[],
+  includeTimelineNote?: boolean
 ): Promise<{ leads: Lead[]; synced: number; failed: number }> {
   const res = await fetch("/api/hubspot/sync", {
     method: "POST",
     headers: await buildApiHeaders(userId),
-    body: JSON.stringify({ leadIds, leads }),
+    body: JSON.stringify({ leadIds, leads, includeTimelineNote }),
   });
   if (!res.ok) {
     const data = await res.json().catch(() => ({}));
@@ -169,4 +170,45 @@ export async function updateContactCloud(
 ): Promise<Lead> {
   const contacts = lead.contacts.map((c) => (c.id === contactId ? { ...c, ...updates } : c));
   return patchCloudLead(userId, leadId, { ...lead, contacts });
+}
+
+export async function dispatchWebhookCloud(
+  userId: string,
+  event: string,
+  data: Record<string, unknown>
+): Promise<void> {
+  await fetch("/api/integrations/webhook", {
+    method: "POST",
+    headers: await buildApiHeaders(userId),
+    body: JSON.stringify({ event, data }),
+  }).catch(() => {});
+}
+
+export async function pushInstantlyCloud(
+  userId: string,
+  leadIds: string[],
+  campaignId: string,
+  leads?: Lead[]
+): Promise<{ added: number; errors: string[] }> {
+  const res = await fetch("/api/integrations/instantly", {
+    method: "POST",
+    headers: await buildApiHeaders(userId),
+    body: JSON.stringify({ leadIds, campaignId, leads }),
+  });
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}));
+    throw new Error((data as { error?: string }).error ?? "Instantly mislukt");
+  }
+  return res.json();
+}
+
+export async function syncUserSettingsCloud(
+  userId: string,
+  settings: Record<string, unknown>
+): Promise<void> {
+  await fetch("/api/settings", {
+    method: "POST",
+    headers: await buildApiHeaders(userId),
+    body: JSON.stringify(settings),
+  }).catch(() => {});
 }

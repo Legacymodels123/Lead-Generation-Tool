@@ -29,7 +29,7 @@ export default function AddLeadModal({ onClose }: Props) {
       setError("Bedrijf en contactpersoon zijn verplicht.");
       return;
     }
-    const err = await addLead({
+    const leadId = await addLead({
       ...form,
       market: form.sector.includes("Agri") ? "Agri Machinery" : form.sector,
       fitReason: "",
@@ -47,7 +47,7 @@ export default function AddLeadModal({ onClose }: Props) {
       score: 0,
       source: "manual",
     });
-    if (err) setError(err);
+    if (!leadId) setError("Kon lead niet toevoegen.");
     else onClose();
   }
 

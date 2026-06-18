@@ -61,13 +61,14 @@ export default function LinkedInImport({ onClose }: Props) {
     setImportIndex(0);
 
     const errs: string[] = [];
+    const importedIds: string[] = [];
     let count = 0;
 
     for (let i = 0; i < parsed.length; i++) {
       const lead = parsed[i];
       setImportIndex(i + 1);
 
-      const error = await addLead({
+      const leadId = await addLead({
         company: lead.company!,
         country: lead.country ?? "Nederland",
         market: lead.sector?.includes("Agri") ? "Agri Machinery" : lead.sector ?? "",
@@ -90,10 +91,11 @@ export default function LinkedInImport({ onClose }: Props) {
         source: "linkedin_import",
       });
 
-      if (error) {
-        errs.push(`${lead.company}: ${error}`);
+      if (!leadId) {
+        errs.push(`${lead.company}: import mislukt`);
       } else {
         count++;
+        importedIds.push(leadId);
       }
     }
 
