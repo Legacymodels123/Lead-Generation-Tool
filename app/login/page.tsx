@@ -1,152 +1,292 @@
-"use client";
+'use client';
 
-import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
-import { useAuth } from "@/lib/auth";
+import { useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
+import { useAuth } from '@/lib/auth';
 
 export default function LoginPage() {
-  const { user, loading, login, register } = useAuth();
   const router = useRouter();
-  const [mode, setMode] = useState<"login" | "register">("login");
-  const [name, setName] = useState("");
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [company, setCompany] = useState("Legacy Scale Models");
-  const [error, setError] = useState("");
+  const { user, loading, login, register } = useAuth();
+  const [mode, setMode] = useState<'login' | 'register'>('login');
+  const [formData, setFormData] = useState({
+    name: '',
+    email: '',
+    password: '',
+    company: 'Legacy Scale Models',
+  });
+  const [error, setError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
 
+  // Redirect if already logged in
   useEffect(() => {
-    if (!loading && user) router.replace("/companies");
+    if (!loading && user) {
+      router.replace('/companies');
+    }
   }, [user, loading, router]);
 
-  async function handleSubmit(e: React.FormEvent) {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setError("");
-    if (mode === "login") {
-      const err = await login(email, password);
-      if (err) setError(err);
-      else router.push("/companies");
-    } else {
-      const err = await register(name, email, password, company);
-      if (err) setError(err);
-      else router.push("/companies");
+    setError(null);
+    setSubmitting(true);
+
+    try {
+      let result: string | null;
+
+      if (mode === 'login') {
+        if (!formData.email || !formData.password) {
+          setError('Email and password are required');
+          setSubmitting(false);
+          return;
+        }
+        result = await login(formData.email, formData.password);
+      } else {
+        if (!formData.name || !formData.email || !formData.password) {
+          setError('All fields are required');
+          setSubmitting(false);
+          return;
+        }
+        result = await register(formData.name, formData.email, formData.password, formData.company);
+      }
+
+      if (result) {
+        setError(result);
+        setSubmitting(false);
+      } else {
+        // Success - redirect handled by useEffect
+        setSubmitting(false);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'An error occurred');
+      setSubmitting(false);
     }
-  }
+  };
 
   if (loading) {
     return (
-      <div className="login-page">
-        <div style={{ color: "#888" }}>Laden...</div>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh', background: '#f3f4f6' }}>
+        <div style={{ fontSize: '14px', color: '#666' }}>Loading...</div>
       </div>
     );
   }
 
   return (
-    <div className="login-page">
-      <div className="login-card">
-        <div className="login-header">
-          <div className="login-logo">
-            <div className="logo-mark">
-              <div className="logo-icon">
-                <span>L</span>
-              </div>
-              <div className="logo-text">
-                <div className="logo-name">
-                  Legacy Scale
-                  <br />
-                  Models
-                </div>
-                <div className="logo-sub">Lead Intelligence</div>
-              </div>
-            </div>
-          </div>
-          <h1 className="login-title">
-            {mode === "login" ? "Inloggen" : "Account aanmaken"}
-          </h1>
-          <p className="login-subtitle">
-            {mode === "login"
-              ? "Toegang tot je lead intelligence dashboard"
-              : "Start met 100 gratis credits"}
+    <div style={{ display: 'flex', height: '100vh', background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)' }}>
+      {/* Left Side - Branding */}
+      <div
+        style={{
+          flex: 1,
+          display: 'flex',
+          flexDirection: 'column',
+          justifyContent: 'center',
+          alignItems: 'center',
+          color: 'white',
+          padding: '40px',
+        }}
+      >
+        <div style={{ maxWidth: '400px', textAlign: 'center' }}>
+          <div style={{ fontSize: '48px', fontWeight: 700, marginBottom: '16px' }}>Lead Intelligence</div>
+          <p style={{ fontSize: '16px', opacity: 0.9, marginBottom: '24px' }}>
+            AI-powered lead enrichment and qualification for your sales team
           </p>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', fontSize: '14px' }}>
+            <div>✓ Real-time Enrichment</div>
+            <div>✓ AI Scoring</div>
+            <div>✓ Waterfall Strategy</div>
+            <div>✓ Multi-source Data</div>
+          </div>
         </div>
+      </div>
 
-        <div className="login-body">
-          <form onSubmit={handleSubmit}>
-            {mode === "register" && (
-              <div className="form-group">
-                <label className="form-label">Naam</label>
-                <input
-                  className="form-input"
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  placeholder="Je volledige naam"
-                />
-              </div>
-            )}
-            <div className="form-group">
-              <label className="form-label">E-mail</label>
+      {/* Right Side - Auth Form */}
+      <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '40px', background: 'white' }}>
+        <form
+          onSubmit={handleSubmit}
+          style={{
+            width: '100%',
+            maxWidth: '400px',
+          }}
+        >
+          {/* Title */}
+          <div style={{ marginBottom: '32px', textAlign: 'center' }}>
+            <h1 style={{ margin: '0 0 8px 0', fontSize: '28px', fontWeight: 700 }}>
+              {mode === 'login' ? 'Welcome back' : 'Create account'}
+            </h1>
+            <p style={{ margin: 0, color: '#666', fontSize: '14px' }}>
+              {mode === 'login' ? 'Sign in to your account' : 'Start enriching leads today'}
+            </p>
+          </div>
+
+          {/* Error Message */}
+          {error && (
+            <div
+              style={{
+                padding: '12px',
+                background: '#fee2e2',
+                border: '1px solid #fecaca',
+                borderRadius: '6px',
+                color: '#dc2626',
+                fontSize: '13px',
+                marginBottom: '16px',
+              }}
+            >
+              {error}
+            </div>
+          )}
+
+          {/* Form Fields */}
+          {mode === 'register' && (
+            <div style={{ marginBottom: '16px' }}>
+              <label style={{ display: 'block', fontSize: '13px', fontWeight: 500, marginBottom: '6px', color: '#374151' }}>
+                Full Name
+              </label>
               <input
-                className="form-input"
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="naam@bedrijf.nl"
-                required
+                type="text"
+                value={formData.name}
+                onChange={e => setFormData({ ...formData, name: e.target.value })}
+                placeholder="John Doe"
+                style={{
+                  width: '100%',
+                  padding: '10px 12px',
+                  border: '1px solid #d1d5db',
+                  borderRadius: '6px',
+                  fontSize: '14px',
+                  boxSizing: 'border-box',
+                }}
               />
             </div>
-            <div className="form-group">
-              <label className="form-label">Wachtwoord</label>
+          )}
+
+          <div style={{ marginBottom: '16px' }}>
+            <label style={{ display: 'block', fontSize: '13px', fontWeight: 500, marginBottom: '6px', color: '#374151' }}>
+              Email
+            </label>
+            <input
+              type="email"
+              value={formData.email}
+              onChange={e => setFormData({ ...formData, email: e.target.value })}
+              placeholder="you@company.com"
+              style={{
+                width: '100%',
+                padding: '10px 12px',
+                border: '1px solid #d1d5db',
+                borderRadius: '6px',
+                fontSize: '14px',
+                boxSizing: 'border-box',
+              }}
+            />
+          </div>
+
+          <div style={{ marginBottom: mode === 'register' ? '16px' : '24px' }}>
+            <label style={{ display: 'block', fontSize: '13px', fontWeight: 500, marginBottom: '6px', color: '#374151' }}>
+              Password
+            </label>
+            <input
+              type="password"
+              value={formData.password}
+              onChange={e => setFormData({ ...formData, password: e.target.value })}
+              placeholder="••••••••"
+              style={{
+                width: '100%',
+                padding: '10px 12px',
+                border: '1px solid #d1d5db',
+                borderRadius: '6px',
+                fontSize: '14px',
+                boxSizing: 'border-box',
+              }}
+            />
+          </div>
+
+          {mode === 'register' && (
+            <div style={{ marginBottom: '24px' }}>
+              <label style={{ display: 'block', fontSize: '13px', fontWeight: 500, marginBottom: '6px', color: '#374151' }}>
+                Company Name
+              </label>
               <input
-                className="form-input"
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                placeholder="••••••••"
-                required
+                type="text"
+                value={formData.company}
+                onChange={e => setFormData({ ...formData, company: e.target.value })}
+                placeholder="Your Company"
+                style={{
+                  width: '100%',
+                  padding: '10px 12px',
+                  border: '1px solid #d1d5db',
+                  borderRadius: '6px',
+                  fontSize: '14px',
+                  boxSizing: 'border-box',
+                }}
               />
             </div>
-            {mode === "register" && (
-              <div className="form-group">
-                <label className="form-label">Bedrijf</label>
-                <input
-                  className="form-input"
-                  value={company}
-                  onChange={(e) => setCompany(e.target.value)}
-                  placeholder="Bedrijfsnaam"
-                />
-              </div>
-            )}
-            {error && <div className="form-error">{error}</div>}
-            <button type="submit" className="btn-primary login-btn">
-              {mode === "login" ? "Inloggen" : "Registreren"}
+          )}
+
+          {/* Submit Button */}
+          <button
+            type="submit"
+            disabled={submitting}
+            style={{
+              width: '100%',
+              padding: '12px',
+              background: submitting ? '#9ca3af' : '#667eea',
+              color: 'white',
+              border: 'none',
+              borderRadius: '6px',
+              fontSize: '14px',
+              fontWeight: 600,
+              cursor: submitting ? 'not-allowed' : 'pointer',
+              marginBottom: '16px',
+            }}
+          >
+            {submitting ? 'Loading...' : mode === 'login' ? 'Sign In' : 'Create Account'}
+          </button>
+
+          {/* Toggle Mode */}
+          <div style={{ textAlign: 'center', fontSize: '13px', color: '#666' }}>
+            {mode === 'login' ? "Don't have an account? " : 'Already have an account? '}
+            <button
+              type="button"
+              onClick={() => {
+                setMode(mode === 'login' ? 'register' : 'login');
+                setError(null);
+                setFormData({
+                  name: '',
+                  email: '',
+                  password: '',
+                  company: 'Legacy Scale Models',
+                });
+              }}
+              style={{
+                background: 'none',
+                border: 'none',
+                color: '#667eea',
+                cursor: 'pointer',
+                fontWeight: 600,
+                fontSize: '13px',
+              }}
+            >
+              {mode === 'login' ? 'Sign up' : 'Sign in'}
             </button>
-          </form>
-
-          <div className="login-switch">
-            {mode === "login" ? (
-              <>
-                Nog geen account?{" "}
-                <button type="button" onClick={() => { setMode("register"); setError(""); }}>
-                  Registreren
-                </button>
-              </>
-            ) : (
-              <>
-                Al een account?{" "}
-                <button type="button" onClick={() => { setMode("login"); setError(""); }}>
-                  Inloggen
-                </button>
-              </>
-            )}
           </div>
 
-          <div className="login-demo">
-            <strong>Demo account:</strong>
-            <br />
-            E-mail: levi@legacy.com
-            <br />
-            Wachtwoord: legacy123
-          </div>
-        </div>
+          {/* Demo Credentials */}
+          {mode === 'login' && (
+            <div
+              style={{
+                marginTop: '24px',
+                padding: '12px',
+                background: '#f0f9ff',
+                border: '1px solid #bfdbfe',
+                borderRadius: '6px',
+                fontSize: '12px',
+                color: '#0369a1',
+              }}
+            >
+              <strong>Demo Account:</strong>
+              <br />
+              Email: levi@legacy.com
+              <br />
+              Password: legacy123
+            </div>
+          )}
+        </form>
       </div>
     </div>
   );
