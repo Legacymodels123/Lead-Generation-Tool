@@ -87,6 +87,7 @@ export default function ExcelCell({
         .join(" ")}
       onMouseDown={(e) => {
         if (e.button !== 0) return;
+        if ((e.target as HTMLElement).closest("input, select, textarea")) return;
         e.stopPropagation();
         onDragStart(cell);
         onSelect(cell, e.shiftKey);
@@ -113,6 +114,8 @@ export default function ExcelCell({
               }
               onInputKeyDown(cell)(e);
             }}
+            onMouseDown={(e) => e.stopPropagation()}
+            onClick={(e) => e.stopPropagation()}
             onBlur={onCommit}
           >
             {options?.map((o) => (
@@ -128,6 +131,8 @@ export default function ExcelCell({
             value={value}
             onChange={(e) => onDraftChange(e.target.value)}
             onKeyDown={onInputKeyDown(cell)}
+            onMouseDown={(e) => e.stopPropagation()}
+            onClick={(e) => e.stopPropagation()}
             onBlur={onCommit}
           />
         )
@@ -135,7 +140,8 @@ export default function ExcelCell({
         <div className="excel-cell-display">
           {prefix}
           <span className="excel-cell-text" title={shown}>
-            {shown || "\u00a0"}
+            {shown ||
+              (className.includes("excel-cell-placeholder") ? "Click to add…" : "\u00a0")}
           </span>
         </div>
       )}

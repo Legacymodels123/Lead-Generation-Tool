@@ -85,19 +85,23 @@ function editableCol(
   headerName: string,
   extra: Partial<ColDef<WorkspaceLead>> = {}
 ): ColDef<WorkspaceLead> {
-  const isText = !extra.cellEditor;
+  const isSelect = Boolean(extra.cellEditor);
   return {
+    ...extra,
     field,
     headerName,
     editable: true,
-    minWidth: 120,
-    cellRenderer: isText ? TextCellRenderer : undefined,
-    cellClassRules: REQUIRED_FIELDS.includes(field as (typeof REQUIRED_FIELDS)[number])
-      ? {
-          "ws-cell-missing": (p) => (p.data ? isFieldMissing(p.data, field) : false),
-        }
-      : undefined,
-    ...extra,
+    minWidth: extra.minWidth ?? 120,
+    cellEditor: extra.cellEditor ?? "agTextCellEditor",
+    cellRenderer: extra.cellRenderer ?? (isSelect ? undefined : TextCellRenderer),
+    cellClassRules: {
+      ...(REQUIRED_FIELDS.includes(field as (typeof REQUIRED_FIELDS)[number])
+        ? {
+            "ws-cell-missing": (p) => (p.data ? isFieldMissing(p.data, field) : false),
+          }
+        : {}),
+      ...extra.cellClassRules,
+    },
   };
 }
 
@@ -150,6 +154,23 @@ export default function LeadsAgGrid({ onCountChange }: Props) {
 
   const columnDefs = useMemo<ColDef<WorkspaceLead>[]>(
     () => [
+      {
+        headerName: "#",
+        width: 52,
+        maxWidth: 52,
+        pinned: "left",
+        lockPosition: true,
+        suppressMovable: true,
+        sortable: false,
+        filter: false,
+        resizable: false,
+        editable: false,
+        cellClass: "ws-row-num",
+        valueGetter: (p) => {
+          if (isDraftWorkspaceLead(p.data)) return "";
+          return (p.node?.rowIndex ?? 0) + 1;
+        },
+      },
       editableCol("company_name", "Company", {
         minWidth: 200,
         pinned: "left",
@@ -445,7 +466,7 @@ export default function LeadsAgGrid({ onCountChange }: Props) {
               enterNavigatesVertically
               enterNavigatesVerticallyAfterEdit
               undoRedoCellEditing
-              enableCellTextSelection
+              enableCellTextSelection={false}
               ensureDomOrder
               animateRows={false}
               onGridReady={onGridReady}

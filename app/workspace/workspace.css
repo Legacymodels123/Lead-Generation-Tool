@@ -215,8 +215,9 @@
   --ag-header-height: 38px;
   --ag-header-background-color: #fafbfc;
   --ag-header-foreground-color: #475569;
-  --ag-border-color: #eceef1;
+  --ag-border-color: #e2e8f0;
   --ag-row-border-color: #eceef1;
+  --ag-cell-horizontal-border: solid #eceef1;
   --ag-background-color: #fff;
   --ag-odd-row-background-color: #fff;
   --ag-row-hover-color: #f7f8fa;
@@ -249,6 +250,29 @@
 .ws-ag-theme .ag-cell-focus:not(.ag-cell-range-selected) {
   border: 1px solid #2563eb !important;
   outline: none;
+}
+
+.ws-ag-theme .ag-cell-inline-editing {
+  padding: 0 !important;
+  border: 2px solid #2563eb !important;
+  box-shadow: none !important;
+}
+
+.ws-ag-theme .ag-cell-inline-editing input,
+.ws-ag-theme .ag-cell-inline-editing select,
+.ws-ag-theme .ag-text-field-input {
+  font-size: 13px !important;
+  padding: 0 10px !important;
+  height: 100% !important;
+}
+
+.ws-row-num {
+  text-align: center;
+  font-size: 11px;
+  font-weight: 500;
+  color: #9ca3af;
+  background: #fafbfc !important;
+  justify-content: center;
 }
 
 .ws-quick-filter {

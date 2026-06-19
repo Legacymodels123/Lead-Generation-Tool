@@ -70,12 +70,20 @@ export function useGridExcel({
   const cellRef = focus ? getExcelRef(navRows, focus) : "";
 
   const selectCell = useCallback((cell: CellAddress, extend = false) => {
-    setEditingCell(null);
+    setEditingCell((prev) => {
+      if (prev?.rowKey === cell.rowKey && prev?.colId === cell.colId) return prev;
+      return null;
+    });
     setSelection((prev) => {
       if (extend && prev) return { anchor: prev.anchor, focus: cell };
       return { anchor: cell, focus: cell };
     });
-    requestAnimationFrame(() => focusGridCell(gridRef.current, cell, false));
+    requestAnimationFrame(() => {
+      const editing =
+        editingRef.current?.rowKey === cell.rowKey &&
+        editingRef.current?.colId === cell.colId;
+      focusGridCell(gridRef.current, cell, editing);
+    });
   }, [gridRef]);
 
   const moveFocus = useCallback(

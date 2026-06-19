@@ -522,10 +522,16 @@ export default function LeadsGrid({
         className="smooth-grid-wrap"
         tabIndex={0}
         onKeyDown={excel.handleGridKeyDown}
+        onMouseDown={(e) => {
+          if ((e.target as HTMLElement).closest("input, select, textarea, .excel-cell-editor")) {
+            e.stopPropagation();
+          }
+        }}
       >
         <table className="leads-grid smooth-grid">
           <thead>
             <tr>
+              <th className="smooth-row-num-col">#</th>
               <th className="smooth-check-col">
                 <input
                   ref={headerCheckRef}
@@ -550,7 +556,7 @@ export default function LeadsGrid({
             </tr>
           </thead>
           <tbody>
-            {leads.map((lead) => {
+            {leads.map((lead, rowIndex) => {
               const contactCount = lead.contacts?.length ?? 0;
               const showEmail = visibleColumns.includes("email");
               const showPhone = visibleColumns.includes("phone");
@@ -562,6 +568,7 @@ export default function LeadsGrid({
                       selectedIds.has(lead.id) ? " checked" : ""
                     }`}
                   >
+                    <td className="smooth-row-num-col">{rowIndex + 1}</td>
                     <td className="smooth-check-col" onClick={(e) => e.stopPropagation()}>
                       <input
                         type="checkbox"
@@ -589,6 +596,7 @@ export default function LeadsGrid({
                       const rowKey = `${lead.id}:${contact.id}`;
                       return (
                         <tr key={contact.id} className="grid-row contact-row">
+                          <td className="smooth-row-num-col" />
                           <td />
                           <td />
                           {cols.map((col) => {
@@ -695,6 +703,7 @@ export default function LeadsGrid({
               const phantomLead = { id: phantomId } as Lead;
               return (
                 <tr key={phantomId} className="grid-row account-row blank-row">
+                  <td className="smooth-row-num-col">{leads.length + i + 1}</td>
                   <td className="smooth-check-col" />
                   <td className="smooth-open-col" />
                   {cols.map((col) => renderAccountCell(col.id, phantomLead, true))}

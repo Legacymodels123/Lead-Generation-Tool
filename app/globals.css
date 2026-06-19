@@ -2037,13 +2037,32 @@ body.grid-filling {
 }
 .smooth-grid th,
 .smooth-grid td {
-  border: none;
+  border-right: 1px solid #eceef1;
   border-bottom: 1px solid #eceef1;
   padding: 0;
   height: 34px;
   vertical-align: middle;
   background: #fff;
   color: #1f2937;
+}
+
+.smooth-row-num-col {
+  width: 44px;
+  min-width: 44px;
+  max-width: 44px;
+  text-align: center;
+  font-size: 11px;
+  font-weight: 500;
+  color: #9ca3af;
+  background: #fafbfc !important;
+  user-select: none;
+  padding: 0 6px !important;
+}
+
+.smooth-grid thead .smooth-row-num-col {
+  background: #fafbfc !important;
+  color: #6b7280;
+  font-weight: 600;
 }
 .smooth-grid thead th {
   position: sticky;
@@ -2129,13 +2148,19 @@ body.grid-filling {
   line-height: 34px;
 }
 .smooth-grid .excel-cell-editor {
+  width: 100%;
   height: 34px;
+  min-height: 34px;
   padding: 0 10px;
   font-size: 13px;
-  box-shadow: inset 0 0 0 2px #6366f1;
+  border: none;
+  outline: none;
+  background: #fff;
+  box-shadow: inset 0 0 0 2px #2563eb;
+  font-family: inherit;
 }
 .smooth-grid .grid-cell-active {
-  box-shadow: inset 0 0 0 2px #6366f1 !important;
+  box-shadow: inset 0 0 0 2px #2563eb !important;
   background: #fff !important;
   z-index: 2;
   position: relative;
