@@ -90,6 +90,7 @@ export interface Lead {
   id: string;
   workspaceId: string;
   company: string;
+  city: string;
   country: string;
   market: string;
   employees: number;

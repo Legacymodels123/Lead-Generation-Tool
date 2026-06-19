@@ -58,6 +58,7 @@ export function normalizeLead(lead: Partial<Lead> & { id: string }): Lead {
     id: lead.id,
     workspaceId: lead.workspaceId ?? DEFAULT_WORKSPACE_ID,
     company: lead.company ?? "",
+    city: lead.city ?? "",
     country: lead.country ?? "Nederland",
     market: lead.market ?? "",
     employees: lead.employees ?? 0,
@@ -82,6 +83,8 @@ export function normalizeLead(lead: Partial<Lead> & { id: string }): Lead {
     aiStatus: lead.aiStatus,
     contacts,
     expanded: lead.expanded ?? false,
+    customValues: lead.customValues,
+    source: lead.source,
   };
 }
 

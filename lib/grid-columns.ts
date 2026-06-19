@@ -6,6 +6,7 @@ export interface GridColumnDef {
   label: string;
   sortable: boolean;
   defaultVisible: boolean;
+  core?: boolean;
   automatable?: "score" | "enrich" | "aiMessage" | "aiSummary" | "aiNextStep" | "research" | "hubspot" | string;
   className?: string;
   isCustom?: boolean;
@@ -14,27 +15,34 @@ export interface GridColumnDef {
   selectOptions?: string[];
 }
 
+/** Core columns appear first and are hideable via Columns picker. */
+export const CORE_COLUMN_IDS = ["company", "sector", "city", "country", "website"] as const;
+
 export const GRID_COLUMNS: GridColumnDef[] = [
-  { id: "company", label: "Bedrijf", sortable: true, defaultVisible: true },
-  { id: "market", label: "Markt", sortable: true, defaultVisible: true },
-  { id: "fitReason", label: "Waarom fit", sortable: false, defaultVisible: true },
-  { id: "dmu", label: "DMU / Contact", sortable: false, defaultVisible: true },
-  { id: "email", label: "E-mail", sortable: false, defaultVisible: true, automatable: "enrich" },
-  { id: "phone", label: "Telefoon", sortable: false, defaultVisible: true },
-  { id: "score", label: "Fit score", sortable: true, defaultVisible: true, automatable: "score" },
-  { id: "status", label: "Status", sortable: true, defaultVisible: true },
+  { id: "company", label: "Company name", sortable: true, defaultVisible: true, core: true },
+  { id: "sector", label: "Industry", sortable: true, defaultVisible: true, core: true },
+  { id: "city", label: "City", sortable: true, defaultVisible: true, core: true },
+  { id: "country", label: "Country", sortable: true, defaultVisible: true, core: true },
+  { id: "website", label: "Website", sortable: false, defaultVisible: true, core: true },
+  { id: "market", label: "Market", sortable: true, defaultVisible: false },
+  { id: "fitReason", label: "Fit reason", sortable: false, defaultVisible: false },
+  { id: "dmu", label: "DMU / Contact", sortable: false, defaultVisible: false },
+  { id: "email", label: "Email", sortable: false, defaultVisible: false, automatable: "enrich" },
+  { id: "phone", label: "Phone", sortable: false, defaultVisible: false },
+  { id: "score", label: "Fit score", sortable: true, defaultVisible: false, automatable: "score" },
+  { id: "status", label: "Status", sortable: true, defaultVisible: false },
   { id: "batch", label: "Batch", sortable: true, defaultVisible: false },
   {
     id: "aiSummary",
-    label: "AI Samenvatting",
+    label: "AI Summary",
     sortable: false,
-    defaultVisible: true,
+    defaultVisible: false,
     automatable: "aiSummary",
     className: "ai-col",
   },
   {
     id: "aiMessage",
-    label: "AI Bericht",
+    label: "AI Message",
     sortable: false,
     defaultVisible: false,
     automatable: "aiMessage",
@@ -42,14 +50,13 @@ export const GRID_COLUMNS: GridColumnDef[] = [
   },
   {
     id: "aiNextStep",
-    label: "Volgende stap",
+    label: "Next step",
     sortable: false,
     defaultVisible: false,
     automatable: "aiNextStep",
     className: "ai-col",
   },
   { id: "hubspot", label: "HubSpot", sortable: false, defaultVisible: false, automatable: "hubspot" },
-  { id: "actions", label: "Acties", sortable: false, defaultVisible: true },
 ];
 
 export const SORTABLE_FIELDS = new Set<SortField>(
@@ -84,9 +91,7 @@ export function buildGridColumns(customColumns: CustomColumn[] = []): GridColumn
     .sort((a, b) => (a.order || 0) - (b.order || 0))
     .map(customColumnToGridDef);
 
-  const actionsCol = GRID_COLUMNS.find((c) => c.id === "actions");
-  const systemCols = GRID_COLUMNS.filter((c) => c.id !== "actions");
-  return [...systemCols, ...customDefs, ...(actionsCol ? [actionsCol] : [])];
+  return [...GRID_COLUMNS, ...customDefs];
 }
 
 export function getColumnDef(id: string, customColumns: CustomColumn[] = []): GridColumnDef | undefined {

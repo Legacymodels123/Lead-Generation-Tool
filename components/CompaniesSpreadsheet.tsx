@@ -29,9 +29,11 @@ import AddLeadModal from "@/components/AddLeadModal";
 import ColumnPropertyDrawer from "@/components/ColumnPropertyDrawer";
 import ColumnPicker from "@/components/ColumnPicker";
 import LeadDetailPanel from "@/components/LeadDetailPanel";
-import LeadsGrid, { type ColumnAction } from "@/components/LeadsGrid";
-import LinkedInImport from "@/components/LinkedInImport";
+import LeadsGrid, { type ColumnAction, type ColumnRunScope } from "@/components/LeadsGrid";
+import CsvImportModal from "@/components/CsvImportModal";
 import ViewSelector from "@/components/ViewSelector";
+import AiConnectButton from "@/components/AiConnectButton";
+import ToolbarActionsMenu from "@/components/ToolbarActionsMenu";
 
 type Filter = LeadStatus | "alle";
 
@@ -75,7 +77,7 @@ export default function CompaniesSpreadsheet() {
   const [drawerInitialType, setDrawerInitialType] = useState<CustomColumnType>("text");
   const [propertyMenuOpen, setPropertyMenuOpen] = useState(false);
   const [showAddModal, setShowAddModal] = useState(false);
-  const [showLinkedInImport, setShowLinkedInImport] = useState(false);
+  const [showCsvImport, setShowCsvImport] = useState(false);
   const [runningWorkflow, setRunningWorkflow] = useState(false);
   const [workflowOpen, setWorkflowOpen] = useState(false);
   const [minScore, setMinScore] = useState<number | "">("");
@@ -243,8 +245,19 @@ export default function CompaniesSpreadsheet() {
     [selectedIds, filtered]
   );
 
-  async function handleColumnAction(action: ColumnAction) {
-    const ids = targetIds();
+  const idsForScope = useCallback(
+    (scope?: ColumnRunScope) => {
+      const all = filtered.map((l) => l.id);
+      if (scope === "first1") return all.slice(0, 1);
+      if (scope === "first10") return all.slice(0, 10);
+      if (scope === "first100") return all.slice(0, 100);
+      return targetIds();
+    },
+    [filtered, targetIds]
+  );
+
+  async function handleColumnAction(action: ColumnAction, scope?: ColumnRunScope) {
+    const ids = idsForScope(scope);
     if (action === "score") {
       const err = await recalculateScores(ids);
       if (err) showToast(err);
@@ -353,6 +366,14 @@ export default function CompaniesSpreadsheet() {
     if (activeViewId === id) setActiveViewId("alle");
   }
 
+  function handleHideColumn(colId: string) {
+    if (currentView.visibleColumns.length <= 1) {
+      showToast("At least one column must stay visible");
+      return;
+    }
+    handleColumnsChange(currentView.visibleColumns.filter((c) => c !== colId));
+  }
+
   function handleExport() {
     exportLeadsToCsv(filtered, `companies-${activeView.name.replace(/\s+/g, "-").toLowerCase()}.csv`);
     showToast(`Exported ${filtered.length} rows`);
@@ -458,7 +479,29 @@ export default function CompaniesSpreadsheet() {
         >
           Add filter
         </button>
+        <button type="button" className="smooth-toolbar-btn smooth-autorun-btn" title="Auto-run workflows">
+          <span className="smooth-autorun-icon" aria-hidden>⚡</span>
+          Auto-run
+          <span className="smooth-autorun-dot" />
+        </button>
         <div className="smooth-toolbar-spacer" />
+        {user?.workspaceId && (
+          <>
+            <AiConnectButton workspaceId={user.workspaceId} provider="openai" />
+            <AiConnectButton workspaceId={user.workspaceId} provider="anthropic" />
+          </>
+        )}
+        <ToolbarActionsMenu
+          onExport={handleExport}
+          onImport={() => setShowCsvImport(true)}
+          onAddRow={() => void addQuickRow()}
+          onRunWorkflow={runPreset}
+          onScore={() => void handleColumnAction("score")}
+          onEnrich={() => void handleColumnAction("enrich")}
+          onHubSpot={() => void handleColumnAction("hubspot")}
+          running={runningWorkflow}
+          exportDisabled={filtered.length === 0}
+        />
         <div className="property-add-dropdown">
           <button
             type="button"
@@ -481,20 +524,6 @@ export default function CompaniesSpreadsheet() {
             </div>
           )}
         </div>
-        <details className="smooth-toolbar-more">
-          <summary className="smooth-toolbar-btn">More</summary>
-          <div className="smooth-toolbar-more-menu">
-            <button type="button" onClick={handleExport} disabled={filtered.length === 0}>
-              Export CSV
-            </button>
-            <button type="button" onClick={() => setShowLinkedInImport(true)}>
-              Import
-            </button>
-            <button type="button" onClick={() => setShowAddModal(true)}>
-              + Row
-            </button>
-          </div>
-        </details>
       </div>
 
       {showFilters && (
@@ -569,6 +598,7 @@ export default function CompaniesSpreadsheet() {
             onColumnAction={handleColumnAction}
             onRowAction={handleRowAction}
             onOpenColumnProperty={openEditProperty}
+            onHideColumn={handleHideColumn}
             scrollToLeadId={scrollToLeadId}
             onScrolledToLead={clearScrollRequest}
             recordCount={filtered.length}
@@ -597,7 +627,20 @@ export default function CompaniesSpreadsheet() {
       )}
 
       {showAddModal && <AddLeadModal onClose={() => setShowAddModal(false)} />}
-      {showLinkedInImport && <LinkedInImport onClose={() => setShowLinkedInImport(false)} />}
+      {showCsvImport && user?.workspaceId && (
+        <CsvImportModal
+          onClose={() => setShowCsvImport(false)}
+          workspaceId={user.workspaceId}
+          token={token}
+          customColumns={customColumns}
+          onCustomColumnsChange={setCustomColumns}
+          onAddVisibleColumn={(colId) => {
+            if (!currentView.visibleColumns.includes(colId)) {
+              handleColumnsChange([...currentView.visibleColumns, colId]);
+            }
+          }}
+        />
+      )}
     </div>
   );
 }

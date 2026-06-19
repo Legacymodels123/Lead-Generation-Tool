@@ -9,6 +9,7 @@ export function columnTypeIcon(col: GridColumnDef): { glyph: string; extra?: str
   if (col.id === "phone") return { glyph: "T", extra: "☎" };
   if (col.id === "score" || col.columnType === "number") return { glyph: "#" };
   if (col.id === "status") return { glyph: "▾" };
+  if (col.id === "website") return { glyph: "T", extra: "🔗" };
   if (col.id === "hubspot") return { glyph: "⇄" };
   if (col.automatable === "enrich") return { glyph: "T", extra: "✉" };
   return { glyph: "T" };

@@ -223,6 +223,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const addQuickRow = useCallback(async () => {
     await addLead({
       company: "",
+      city: "",
       country: "",
       market: "",
       employees: 0,

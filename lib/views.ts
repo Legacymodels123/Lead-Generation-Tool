@@ -2,6 +2,9 @@ import type { LeadStatus } from "./types";
 
 export type SortField =
   | "company"
+  | "sector"
+  | "city"
+  | "country"
   | "market"
   | "score"
   | "status"
@@ -27,17 +30,10 @@ export interface LeadView {
 
 export const DEFAULT_VISIBLE_COLUMNS = [
   "company",
-  "market",
-  "fitReason",
-  "dmu",
-  "email",
-  "phone",
-  "score",
-  "status",
-  "batch",
-  "aiSummary",
-  "hubspot",
-  "actions",
+  "sector",
+  "city",
+  "country",
+  "website",
 ];
 
 export const DEFAULT_VIEWS: LeadView[] = [

@@ -70,6 +70,7 @@ export default function LinkedInImport({ onClose }: Props) {
 
       const leadId = await addLead({
         company: lead.company!,
+        city: "",
         country: lead.country ?? "Nederland",
         market: lead.sector?.includes("Agri") ? "Agri Machinery" : lead.sector ?? "",
         employees: lead.employees ?? 0,

@@ -56,6 +56,7 @@ export default function ColumnPicker({
                 <label>
                   <input type="checkbox" checked={visible} onChange={() => toggle(col.id)} />
                   {col.label}
+                  {col.core && <span className="column-picker-core"> core</span>}
                   {isCustom && <span className="column-picker-custom"> custom</span>}
                 </label>
                 {visible && (

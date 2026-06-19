@@ -52,6 +52,7 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
     const input: Omit<Lead, "id" | "workspaceId"> = {
       company: body.company || "",
+      city: body.city || "",
       country: body.country || "",
       market: body.market || "",
       employees: body.employees || 0,

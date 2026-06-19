@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { Inter } from "next/font/google";
+import { Analytics } from "@vercel/analytics/react";
 import "@/app/globals.css";
 import { AuthProvider } from "@/lib/auth";
 import { AppProvider } from "@/lib/store";
@@ -22,6 +23,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <AuthProvider>
           <AppProvider>{children}</AppProvider>
         </AuthProvider>
+        <Analytics />
       </body>
     </html>
   );

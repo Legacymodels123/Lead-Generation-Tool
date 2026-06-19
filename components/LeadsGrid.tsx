@@ -10,7 +10,7 @@ import { customColumnGridId, findCustomColumn, mergeGridColumns } from "@/lib/me
 import type { CellAddress } from "@/lib/grid-navigation";
 import { columnTypeIcon } from "@/lib/grid-column-icons";
 import type { SortDir, SortField } from "@/lib/views";
-import { FLAGS, scoreColor } from "@/lib/utils";
+import { scoreColor } from "@/lib/utils";
 import { STATUS_LABELS } from "@/lib/types";
 import ExcelCell from "@/components/ExcelCell";
 import { useGridExcel } from "@/hooks/useGridExcel";
@@ -48,6 +48,10 @@ export type ColumnAction =
   | `custom:${string}`
   | `research:${string}`;
 
+export type ColumnRunScope = "selection" | "first1" | "first10" | "first100";
+
+const MIN_GRID_ROWS = 40;
+
 interface Props {
   leads: Lead[];
   visibleColumns: string[];
@@ -64,9 +68,10 @@ interface Props {
   onAddRow: () => void;
   onCopyMessage: (id: string) => void;
   onSort: (field: SortField) => void;
-  onColumnAction: (action: ColumnAction) => void;
+  onColumnAction: (action: ColumnAction, scope?: ColumnRunScope) => void;
   onRowAction: (action: ColumnAction, leadId: string) => void;
   onOpenColumnProperty?: (colId: string) => void;
+  onHideColumn?: (colId: string) => void;
   scrollToLeadId?: string | null;
   onScrolledToLead?: () => void;
   recordCount?: number;
@@ -78,14 +83,17 @@ function ColumnHeaderMenu({
   onSort,
   onAction,
   onOpenProperty,
+  onHideColumn,
 }: {
   col: GridColumnDef;
   sort?: { field: SortField; dir: SortDir };
   onSort: (field: SortField) => void;
-  onAction: (action: ColumnAction) => void;
+  onAction: (action: ColumnAction, scope?: ColumnRunScope) => void;
   onOpenProperty?: (colId: string) => void;
+  onHideColumn?: (colId: string) => void;
 }) {
-  const [open, setOpen] = useState(false);
+  const [runOpen, setRunOpen] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
   const isSorted = sort?.field === col.id;
   const sortIndicator = isSorted ? (sort!.dir === "asc" ? " ^" : " v") : "";
   const isCustom = col.id.startsWith("custom:");
@@ -111,28 +119,87 @@ function ColumnHeaderMenu({
           <span className="col-header-label">{col.label}</span>
         )}
         <div className="col-header-menu">
-          {isCustom && onOpenProperty && (
+          {(col.core || col.isCustom) && onHideColumn && (
             <button
               type="button"
-              className="col-run-btn"
-              onClick={() => onOpenProperty(col.id)}
-              title="Property"
+              className="col-menu-btn"
+              onClick={() => setMenuOpen(!menuOpen)}
+              title="Column options"
             >
-              Cfg
+              ?
             </button>
+          )}
+          {menuOpen && (
+            <div className="col-run-dropdown col-header-dropdown">
+              {isCustom && onOpenProperty && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    onOpenProperty(col.id);
+                    setMenuOpen(false);
+                  }}
+                >
+                  Edit property
+                </button>
+              )}
+              {onHideColumn && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    onHideColumn(col.id);
+                    setMenuOpen(false);
+                  }}
+                >
+                  Hide column
+                </button>
+              )}
+            </div>
           )}
           {col.automatable && (
             <>
-              <button type="button" className="col-run-btn col-play-btn" onClick={() => setOpen(!open)} title="Run">
-                Run
+              <button
+                type="button"
+                className="col-run-btn col-play-btn"
+                onClick={() => setRunOpen(!runOpen)}
+                title="Run column"
+              >
+                ?
               </button>
-              {open && (
+              {runOpen && (
                 <div className="col-run-dropdown">
                   <button
                     type="button"
                     onClick={() => {
-                      onAction(col.automatable as ColumnAction);
-                      setOpen(false);
+                      onAction(col.automatable as ColumnAction, "first1");
+                      setRunOpen(false);
+                    }}
+                  >
+                    First row
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onAction(col.automatable as ColumnAction, "first10");
+                      setRunOpen(false);
+                    }}
+                  >
+                    First 10 rows
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onAction(col.automatable as ColumnAction, "first100");
+                      setRunOpen(false);
+                    }}
+                  >
+                    First 100 rows
+                  </button>
+                  <div className="col-run-dropdown-sep" />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onAction(col.automatable as ColumnAction, "selection");
+                      setRunOpen(false);
                     }}
                   >
                     Run on selection
@@ -166,6 +233,7 @@ export default function LeadsGrid({
   onColumnAction,
   onRowAction,
   onOpenColumnProperty,
+  onHideColumn,
   scrollToLeadId,
   onScrolledToLead,
   recordCount,
@@ -256,6 +324,7 @@ export default function LeadsGrid({
     .map((id) => allGridColumns.find((c) => c.id === id))
     .filter((c): c is GridColumnDef => Boolean(c));
   const colSpan = 2 + cols.length;
+  const blankRowCount = Math.max(0, MIN_GRID_ROWS - leads.length);
 
   function renderAccountCell(colId: string, lead: Lead) {
     const score = lead.score ?? 0;
@@ -265,10 +334,15 @@ export default function LeadsGrid({
 
     switch (colId) {
       case "company":
-        return ec(lead.id, colId, lead.company, {
-          className: "excel-cell-bold",
-          prefix: <span className="company-flag">{FLAGS[lead.country] ?? "??"}</span>,
-        });
+        return ec(lead.id, colId, lead.company, { className: "excel-cell-bold" });
+      case "sector":
+        return ec(rowKey, colId, lead.sector);
+      case "city":
+        return ec(rowKey, colId, lead.city ?? "");
+      case "country":
+        return ec(rowKey, colId, lead.country);
+      case "website":
+        return ec(rowKey, colId, lead.website, { className: "excel-cell-url" });
       case "market":
         return ec(rowKey, colId, lead.market);
       case "fitReason":
@@ -328,19 +402,6 @@ export default function LeadsGrid({
             )}
           </td>
         );
-      case "actions":
-        return (
-          <td key={colId} className="excel-readonly" onClick={(e) => e.stopPropagation()}>
-            <div className="actions-cell">
-              <button type="button" className="action-btn" onClick={() => onCopyMessage(lead.id)} title="Copy message">
-                Msg
-              </button>
-              <button type="button" className="action-btn" onClick={() => onRowAction("hubspot", lead.id)}>
-                HS
-              </button>
-            </div>
-          </td>
-        );
       default: {
         const custom = findCustomColumn(customColumns, colId);
         if (!custom) return <td key={colId} className="excel-readonly" />;
@@ -387,32 +448,20 @@ export default function LeadsGrid({
                 />
               </th>
               <th className="smooth-open-col" aria-label="Expand" />
-              {cols.map((col) =>
-                col.id === "actions" ? (
-                  <th key={col.id} className="smooth-header-cell">
-                    {col.label}
-                  </th>
-                ) : (
-                  <ColumnHeaderMenu
-                    key={col.id}
-                    col={col}
-                    sort={sort}
-                    onSort={onSort}
-                    onAction={onColumnAction}
-                    onOpenProperty={onOpenColumnProperty}
-                  />
-                )
-              )}
+              {cols.map((col) => (
+                <ColumnHeaderMenu
+                  key={col.id}
+                  col={col}
+                  sort={sort}
+                  onSort={onSort}
+                  onAction={onColumnAction}
+                  onOpenProperty={onOpenColumnProperty}
+                  onHideColumn={onHideColumn}
+                />
+              ))}
             </tr>
           </thead>
           <tbody>
-            {leads.length === 0 && (
-              <tr>
-                <td colSpan={colSpan} className="grid-empty">
-                  No rows - press + Add row or import CSV
-                </td>
-              </tr>
-            )}
             {leads.map((lead) => {
               const contactCount = lead.contacts?.length ?? 0;
               const showEmail = visibleColumns.includes("email");
@@ -553,6 +602,17 @@ export default function LeadsGrid({
                 </Fragment>
               );
             })}
+            {Array.from({ length: blankRowCount }).map((_, i) => (
+              <tr key={`blank-${i}`} className="grid-row blank-row">
+                <td className="smooth-check-col" />
+                <td className="smooth-open-col" />
+                {cols.map((col) => (
+                  <td key={col.id} className="excel-cell-blank">
+                    <span className="excel-cell-display" />
+                  </td>
+                ))}
+              </tr>
+            ))}
           </tbody>
         </table>
       </div>

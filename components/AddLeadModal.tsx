@@ -31,6 +31,7 @@ export default function AddLeadModal({ onClose }: Props) {
     }
     const leadId = await addLead({
       ...form,
+      city: "",
       market: form.sector.includes("Agri") ? "Agri Machinery" : form.sector,
       fitReason: "",
       website: "",

@@ -40,6 +40,12 @@ export function getCellValue(
     switch (colId) {
       case "company":
         return lead.company;
+      case "sector":
+        return lead.sector;
+      case "city":
+        return lead.city ?? "";
+      case "country":
+        return lead.country;
       case "market":
         return lead.market;
       case "fitReason":
@@ -126,6 +132,15 @@ export function setCellValue(
     switch (colId) {
       case "company":
         writers.onUpdate(leadId, { company: value }, immediate);
+        break;
+      case "sector":
+        writers.onUpdate(leadId, { sector: value }, immediate);
+        break;
+      case "city":
+        writers.onUpdate(leadId, { city: value }, immediate);
+        break;
+      case "country":
+        writers.onUpdate(leadId, { country: value }, immediate);
         break;
       case "market":
         writers.onUpdate(leadId, { market: value }, immediate);

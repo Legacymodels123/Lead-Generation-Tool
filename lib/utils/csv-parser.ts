@@ -1,8 +1,8 @@
+import { splitCSVLine } from "@/lib/import/parse-csv";
 import type { Lead } from "@/lib/types";
 
 const COLUMN_MAP: Record<string, string> = {
-  "first name": "firstName",
-  "last name": "lastName",
+  "first name": "firstName",  "last name": "lastName",
   "first name (unformatted)": "firstName",
   "last name (unformatted)": "lastName",
   title: "contactTitle",
@@ -38,29 +38,6 @@ function parseCountry(value: string): string {
   if (v.includes("noor") || v === "no") return "Noorwegen";
   if (v.includes("port") || v === "pt") return "Portugal";
   return value;
-}
-
-function splitCSVLine(line: string, delimiter: string): string[] {
-  const cols: string[] = [];
-  let current = "";
-  let inQuotes = false;
-
-  for (let i = 0; i < line.length; i++) {
-    const char = line[i];
-    if (char === '"') {
-      inQuotes = !inQuotes;
-      continue;
-    }
-    if (char === delimiter && !inQuotes) {
-      cols.push(current.trim());
-      current = "";
-      continue;
-    }
-    current += char;
-  }
-
-  cols.push(current.trim());
-  return cols.map((c) => c.replace(/^"|"$/g, "").trim());
 }
 
 export function findDuplicateCompanies(
