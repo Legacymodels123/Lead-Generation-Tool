@@ -14,17 +14,15 @@ export interface NavRow {
 const ACCOUNT_EDITABLE = new Set(["company", "market", "fitReason", "status"]);
 const CONTACT_EDITABLE = new Set(["fitReason", "dmu", "email", "phone"]);
 
-function accountEditableCols(visibleColumns: string[]): string[] {
-  return visibleColumns.filter((id) => ACCOUNT_EDITABLE.has(id));
-}
-
-function contactEditableCols(visibleColumns: string[]): string[] {
-  return visibleColumns.filter((id) => CONTACT_EDITABLE.has(id));
-}
-
-export function buildNavRows(leads: Lead[], visibleColumns: string[]): NavRow[] {
-  const accountCols = accountEditableCols(visibleColumns);
-  const contactCols = contactEditableCols(visibleColumns);
+export function buildNavRows(
+  leads: Lead[],
+  visibleColumns: string[],
+  accountExtraEditable: string[] = []
+): NavRow[] {
+  const accountCols = visibleColumns.filter(
+    (id) => ACCOUNT_EDITABLE.has(id) || accountExtraEditable.includes(id)
+  );
+  const contactCols = visibleColumns.filter((id) => CONTACT_EDITABLE.has(id));
   const rows: NavRow[] = [];
 
   for (const lead of leads) {

@@ -1,155 +1,129 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getSessionUser, getLead, updateLead } from "@/lib/server/store";
+import { getApiAuth } from "@/lib/api-auth";
+import { isCloudEnabled } from "@/lib/data/is-cloud";
+import {
+  loadLeadsWithContacts,
+  updateLeadInDb,
+} from "@/lib/data/leads-db";
+import { buildAccountWaterfall, buildEnrichmentWaterfall } from "@/lib/enrichment/waterfall";
+import { getAiConfig } from "@/lib/automation/provider";
+import { getLead, updateLead } from "@/lib/server/store";
+import { createAdminClient } from "@/lib/supabase/admin";
+import type { Lead } from "@/lib/types";
+import { fitScore } from "@/lib/utils";
+import { normalizeLead } from "@/lib/utils/contacts";
 
 export const dynamic = "force-dynamic";
 
 interface EnrichRequest {
   leadId: string;
-}
-
-// Mock AI enrichment - replace with OpenAI call if OPENAI_API_KEY is set
-async function enrichWithAI(lead: any): Promise<any> {
-  const hasOpenAiKey = process.env.OPENAI_API_KEY;
-
-  if (hasOpenAiKey) {
-    // Real OpenAI integration
-    try {
-      const response = await fetch("https://api.openai.com/v1/chat/completions", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
-        },
-        body: JSON.stringify({
-          model: "gpt-4o-mini",
-          messages: [
-            {
-              role: "user",
-              content: `Analyze this company and provide enrichment data in JSON format.
-Company: ${lead.company}
-Website: ${lead.website}
-Contact: ${lead.contactName}
-Country: ${lead.country}
-
-Return a JSON object with:
-{
-  "aiSummary": "Company summary",
-  "fitReason": "Why this company fits",
-  "score": <0-100>,
-  "aiQualificationScore": <0-1>,
-  "message": "Personalized message for outreach"
-}
-
-Keep it concise.`,
-            },
-          ],
-          temperature: 0.7,
-          max_tokens: 500,
-        }),
-      });
-
-      if (!response.ok) {
-        throw new Error(`OpenAI API error: ${response.statusText}`);
-      }
-
-      const data = await response.json();
-      const content = data.choices?.[0]?.message?.content;
-
-      if (content) {
-        try {
-          const enrichment = JSON.parse(content);
-          return enrichment;
-        } catch {
-          console.warn("Failed to parse OpenAI response as JSON");
-          return getMockEnrichment(lead);
-        }
-      }
-    } catch (error) {
-      console.error("OpenAI enrichment failed:", error);
-      return getMockEnrichment(lead);
-    }
-  }
-
-  return getMockEnrichment(lead);
-}
-
-function getMockEnrichment(lead: any) {
-  // Mock AI responses for development
-  const scores: Record<string, number> = {
-    SaaS: 85,
-    Technology: 80,
-    AI: 95,
-    Software: 80,
-  };
-
-  const score = scores[lead.sector as string] || 75;
-
-  return {
-    aiSummary: `${lead.company} is a ${lead.sector || "tech"} company based in ${lead.country} with ${lead.employees || "multiple"} employees. Strong market potential.`,
-    fitReason:
-      lead.sector === "AI"
-        ? "Leading AI market opportunity"
-        : `Relevant ${lead.sector || "tech"} sector alignment`,
-    score: score,
-    aiQualificationScore: score / 100,
-    message: `Hi ${lead.contactName || "there"},\n\nI came across ${lead.company} and was impressed by your work in ${lead.sector}. Would love to discuss partnership opportunities.\n\nBest regards`,
-  };
+  leads?: Lead[];
 }
 
 export async function POST(request: NextRequest) {
   try {
-    const authHeader = request.headers.get("authorization");
-    const token = authHeader?.replace("Bearer ", "");
-
-    if (!token) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
-
-    const user = getSessionUser(token);
-    if (!user) {
-      return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-    }
+    const auth = await getApiAuth(request);
+    if (!auth) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
     const body: EnrichRequest = await request.json();
-
     if (!body.leadId) {
       return NextResponse.json({ error: "leadId required" }, { status: 400 });
     }
 
-    const lead = getLead(body.leadId);
-    if (!lead || lead.workspaceId !== user.workspaceId) {
+    const { apiKey } = getAiConfig();
+    const accountWaterfall = buildAccountWaterfall(Boolean(apiKey));
+    const contactWaterfall = buildEnrichmentWaterfall(Boolean(apiKey));
+
+    let lead: Lead | undefined;
+    const supabase = createAdminClient();
+
+    if (isCloudEnabled() && supabase) {
+      const all = await loadLeadsWithContacts(supabase, auth.userId);
+      lead = all.find((l) => l.id === body.leadId);
+    } else {
+      lead = getLead(body.leadId);
+      if (lead && lead.workspaceId !== auth.workspaceId) lead = undefined;
+    }
+
+    if (!lead && body.leads?.length) {
+      lead = body.leads.find((l) => l.id === body.leadId);
+    }
+
+    if (!lead) {
       return NextResponse.json({ error: "Lead not found" }, { status: 404 });
     }
 
-    // Enrich with AI
-    const enrichment = await enrichWithAI(lead);
+    const patch: Partial<Lead> = { aiStatus: "done" };
 
-    // Update lead with enriched data
-    const updatedLead = updateLead(body.leadId, {
-      ...enrichment,
-      aiSummary: enrichment.aiSummary,
-      score: enrichment.score,
-      aiQualificationScore: enrichment.aiQualificationScore,
-      message: enrichment.message,
-      fitReason: enrichment.fitReason,
-    });
+    if (accountWaterfall) {
+      try {
+        const accountResult = await accountWaterfall.enrichAccount(lead);
+        Object.assign(patch, {
+          market: accountResult.market || lead.market,
+          sector: accountResult.sector || lead.sector,
+          fitReason: accountResult.fitReason || lead.fitReason,
+          employees: accountResult.employees ?? lead.employees,
+          revenue: accountResult.revenue || lead.revenue,
+          country: accountResult.country || lead.country,
+          website: accountResult.website || lead.website,
+          linkedinCompanyUrl: accountResult.linkedinCompanyUrl || lead.linkedinCompanyUrl,
+          aiSummary: accountResult.aiSummary || lead.aiSummary,
+        });
+      } catch (e) {
+        console.error("Account enrichment failed:", e);
+      }
+    }
 
-    if (!updatedLead) {
-      return NextResponse.json({ error: "Failed to update lead" }, { status: 500 });
+    const workingLead = normalizeLead({ ...lead, ...patch });
+    const enrichedContacts = [...workingLead.contacts];
+
+    if (contactWaterfall) {
+      for (let i = 0; i < enrichedContacts.length; i++) {
+        const contact = enrichedContacts[i];
+        if (!contact.name && !contact.linkedinUrl) continue;
+        try {
+          const result = await contactWaterfall.enrichContact(contact, workingLead);
+          enrichedContacts[i] = {
+            ...contact,
+            email: result.email || contact.email,
+            phone: result.phone || contact.phone,
+            name: result.name || contact.name,
+            title: result.title || contact.title,
+            linkedinUrl: result.linkedinUrl || contact.linkedinUrl,
+            enrichmentStatus: "done",
+            emailConfidence: result.emailConfidence,
+            enrichmentProvider: result.enrichmentProvider,
+          };
+        } catch {
+          enrichedContacts[i] = { ...contact, enrichmentStatus: "error" };
+        }
+      }
+    }
+
+    patch.contacts = enrichedContacts;
+    patch.score = fitScore(workingLead);
+
+    let updatedLead: Lead;
+    if (isCloudEnabled() && supabase) {
+      const updated = await updateLeadInDb(supabase, auth.userId, body.leadId, patch);
+      if (!updated) {
+        return NextResponse.json({ error: "Failed to update lead" }, { status: 500 });
+      }
+      updatedLead = updated;
+    } else {
+      const updated = updateLead(body.leadId, patch);
+      if (!updated) {
+        return NextResponse.json({ error: "Failed to update lead" }, { status: 500 });
+      }
+      updatedLead = updated;
     }
 
     return NextResponse.json({
       lead: updatedLead,
-      enrichment: {
-        ...enrichment,
-        source: process.env.OPENAI_API_KEY ? "openai" : "mock",
-      },
+      enrichment: { source: accountWaterfall ? "waterfall" : "none" },
     });
   } catch (error) {
     console.error("Enrich lead error:", error);
-    return NextResponse.json(
-      { error: "Internal server error" },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 });
   }
 }

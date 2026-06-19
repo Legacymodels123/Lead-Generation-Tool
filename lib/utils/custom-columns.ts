@@ -45,8 +45,10 @@ export function createColumnKey(label: string): string {
 }
 
 export function isValidCustomColumnType(type: string): type is CustomColumnType {
-  return ["text", "number", "date", "select", "email", "url"].includes(type);
+  return ["text", "number", "date", "select", "email", "url", "ai_enriched"].includes(type);
 }
+
+export const DRAWER_COLUMN_TYPES: CustomColumnType[] = ["text", "select", "ai_enriched"];
 
 export function formatColumnValue(value: any, type: CustomColumnType): string {
   if (value === null || value === undefined) return "-";

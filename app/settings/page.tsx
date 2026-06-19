@@ -5,6 +5,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth";
 import { useApp } from "@/lib/store";
+import ConnectionsHub from "@/components/ConnectionsHub";
 
 export default function SettingsPage() {
   const { user, loading, logout } = useAuth();
@@ -72,6 +73,10 @@ export default function SettingsPage() {
               <span style={{ fontWeight: 500 }}>{user.company}</span>
             </div>
           </div>
+        </div>
+
+        <div className="settings-connections">
+          <ConnectionsHub workspaceId={user.workspaceId ?? "legacy-scale-models"} compact />
         </div>
 
         {/* Data Management Section */}

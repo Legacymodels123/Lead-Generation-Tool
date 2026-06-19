@@ -1,10 +1,12 @@
 "use client";
 
-import { Fragment, useMemo, useRef, useState } from "react";
-import type { Contact, Lead, LeadStatus } from "@/lib/types";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
+import type { Contact, CustomColumn, Lead, LeadStatus } from "@/lib/types";
 import type { AiStatus } from "@/lib/types";
 import { getDmuRoleLabel } from "@/lib/dmu/roles";
 import { GRID_COLUMNS, type GridColumnDef } from "@/lib/grid-columns";
+import { isColumnVisibleForLead } from "@/lib/column-conditions";
+import { customColumnGridId, findCustomColumn, mergeGridColumns } from "@/lib/merge-grid-columns";
 import type { CellAddress } from "@/lib/grid-navigation";
 import { colIndexToLetter } from "@/lib/grid-navigation";
 import type { SortDir, SortField } from "@/lib/views";
@@ -42,16 +44,19 @@ export type ColumnAction =
   | "aiSummary"
   | "aiNextStep"
   | "hubspot"
-  | "instantly";
+  | "instantly"
+  | `custom:${string}`
+  | `research:${string}`;
 
 interface Props {
   leads: Lead[];
   visibleColumns: string[];
+  customColumns?: CustomColumn[];
   sort?: { field: SortField; dir: SortDir };
   selectedId: string | null;
   selectedIds: Set<string>;
   onSelectRow: (id: string) => void;
-  onToggleSelect: (id: string) => void;
+  onToggleSelect: (id: string, shiftKey?: boolean) => void;
   onToggleSelectAll: (ids: string[]) => void;
   onUpdate: (id: string, updates: Partial<Lead>) => void;
   onUpdateContact: (leadId: string, contactId: string, updates: Partial<Contact>) => void;
@@ -61,6 +66,9 @@ interface Props {
   onSort: (field: SortField) => void;
   onColumnAction: (action: ColumnAction) => void;
   onRowAction: (action: ColumnAction, leadId: string) => void;
+  onOpenColumnProperty?: (colId: string) => void;
+  scrollToLeadId?: string | null;
+  onScrolledToLead?: () => void;
 }
 
 function ColumnHeaderMenu({
@@ -68,15 +76,18 @@ function ColumnHeaderMenu({
   sort,
   onSort,
   onAction,
+  onOpenProperty,
 }: {
   col: GridColumnDef;
   sort?: { field: SortField; dir: SortDir };
   onSort: (field: SortField) => void;
   onAction: (action: ColumnAction) => void;
+  onOpenProperty?: (colId: string) => void;
 }) {
   const [open, setOpen] = useState(false);
   const isSorted = sort?.field === col.id;
   const sortIndicator = isSorted ? (sort!.dir === "asc" ? " ?" : " ?") : "";
+  const isCustom = col.id.startsWith("custom:");
 
   return (
     <th className={`excel-header-cell ${col.className ?? ""}`}>
@@ -93,26 +104,38 @@ function ColumnHeaderMenu({
         ) : (
           <span className="col-header-label">{col.label}</span>
         )}
-        {col.automatable && (
-          <div className="col-header-menu">
-            <button type="button" className="col-run-btn" onClick={() => setOpen(!open)} title="Run">
+        <div className="col-header-menu">
+          {isCustom && onOpenProperty && (
+            <button
+              type="button"
+              className="col-run-btn"
+              onClick={() => onOpenProperty(col.id)}
+              title="Property"
+            >
               ?
             </button>
-            {open && (
-              <div className="col-run-dropdown">
-                <button
-                  type="button"
-                  onClick={() => {
-                    onAction(col.automatable as ColumnAction);
-                    setOpen(false);
-                  }}
-                >
-                  Run on selection
-                </button>
-              </div>
-            )}
-          </div>
-        )}
+          )}
+          {col.automatable && (
+            <>
+              <button type="button" className="col-run-btn" onClick={() => setOpen(!open)} title="Run">
+                ?
+              </button>
+              {open && (
+                <div className="col-run-dropdown">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onAction(col.automatable as ColumnAction);
+                      setOpen(false);
+                    }}
+                  >
+                    Run on selection
+                  </button>
+                </div>
+              )}
+            </>
+          )}
+        </div>
       </div>
     </th>
   );
@@ -121,6 +144,7 @@ function ColumnHeaderMenu({
 export default function LeadsGrid({
   leads,
   visibleColumns,
+  customColumns = [],
   sort,
   selectedId,
   selectedIds,
@@ -135,11 +159,42 @@ export default function LeadsGrid({
   onSort,
   onColumnAction,
   onRowAction,
+  onOpenColumnProperty,
+  scrollToLeadId,
+  onScrolledToLead,
 }: Props) {
   const gridRef = useRef<HTMLDivElement>(null);
+  const headerCheckRef = useRef<HTMLInputElement>(null);
   const writers = useMemo(() => ({ onUpdate, onUpdateContact }), [onUpdate, onUpdateContact]);
 
-  const excel = useGridExcel({ leads, visibleColumns, writers, gridRef });
+  const accountExtraEditable = useMemo(
+    () =>
+      customColumns
+        .filter((c) => c.type === "text" || c.type === "select")
+        .map((c) => customColumnGridId(c)),
+    [customColumns]
+  );
+
+  const excel = useGridExcel({
+    leads,
+    visibleColumns,
+    customColumns,
+    accountExtraEditable,
+    writers,
+    gridRef,
+  });
+
+  useEffect(() => {
+    if (!scrollToLeadId || !gridRef.current) return;
+    const row = gridRef.current.querySelector(`tr.grid-row.account-row`);
+    const rows = gridRef.current.querySelectorAll(`tr.grid-row.account-row`);
+    const idx = leads.findIndex((l) => l.id === scrollToLeadId);
+    const target = rows[idx] as HTMLElement | undefined;
+    if (target) {
+      target.scrollIntoView({ block: "nearest" });
+      onScrolledToLead?.();
+    }
+  }, [scrollToLeadId, leads, onScrolledToLead]);
 
   const ec = (
     rowKey: string,
@@ -181,8 +236,17 @@ export default function LeadsGrid({
   };
 
   const allSelected = leads.length > 0 && leads.every((l) => selectedIds.has(l.id));
+  const someSelected = leads.some((l) => selectedIds.has(l.id)) && !allSelected;
+
+  useEffect(() => {
+    if (headerCheckRef.current) {
+      headerCheckRef.current.indeterminate = someSelected;
+    }
+  }, [someSelected]);
+
+  const allGridColumns = useMemo(() => mergeGridColumns(customColumns), [customColumns]);
   const cols = visibleColumns
-    .map((id) => GRID_COLUMNS.find((c) => c.id === id))
+    .map((id) => allGridColumns.find((c) => c.id === id))
     .filter((c): c is GridColumnDef => Boolean(c));
   const colSpan = 3 + cols.length;
 
@@ -251,9 +315,9 @@ export default function LeadsGrid({
         return (
           <td key={colId} className="excel-readonly" onClick={() => onSelectRow(lead.id)}>
             {lead.hubspotCompanyId ? (
-              <span className="hs-badge hs-synced">?</span>
+              <span className="hs-badge hs-synced" title="Synced to HubSpot">?</span>
             ) : (
-              <span className="hs-badge hs-pending">?</span>
+              <span className="hs-badge hs-pending" title="Not synced">?</span>
             )}
           </td>
         );
@@ -270,8 +334,28 @@ export default function LeadsGrid({
             </div>
           </td>
         );
-      default:
-        return <td key={colId} className="excel-readonly" />;
+      default: {
+        const custom = findCustomColumn(customColumns, colId);
+        if (!custom) return <td key={colId} className="excel-readonly" />;
+        if (!isColumnVisibleForLead(custom, lead)) {
+          return <td key={colId} className="excel-readonly excel-cell-hidden" />;
+        }
+        const val = lead.customValues?.[custom.key] ?? "";
+        if (custom.type === "select") {
+          return ec(rowKey, colId, val, {
+            type: "select",
+            options: (custom.selectOptions ?? []).map((o) => ({ value: o, label: o })),
+          });
+        }
+        if (custom.type === "ai_enriched") {
+          return (
+            <td key={colId} className="ai-cell excel-readonly" onClick={() => onSelectRow(lead.id)}>
+              <AiCellContent value={val} />
+            </td>
+          );
+        }
+        return ec(rowKey, colId, val);
+      }
     }
   }
 
@@ -318,6 +402,7 @@ export default function LeadsGrid({
               <th className="excel-row-head">#</th>
               <th className="grid-check-col">
                 <input
+                  ref={headerCheckRef}
                   type="checkbox"
                   checked={allSelected}
                   onChange={() => onToggleSelectAll(leads.map((l) => l.id))}
@@ -337,6 +422,7 @@ export default function LeadsGrid({
                     sort={sort}
                     onSort={onSort}
                     onAction={onColumnAction}
+                    onOpenProperty={onOpenColumnProperty}
                   />
                 )
               )}
@@ -369,7 +455,8 @@ export default function LeadsGrid({
                       <input
                         type="checkbox"
                         checked={selectedIds.has(lead.id)}
-                        onChange={() => onToggleSelect(lead.id)}
+                        onClick={(e) => onToggleSelect(lead.id, e.shiftKey)}
+                        onChange={() => {}}
                       />
                     </td>
                     <td className="grid-expand-col" onClick={(e) => e.stopPropagation()}>
@@ -482,6 +569,9 @@ export default function LeadsGrid({
                                   )}
                                 </td>
                               );
+                            }
+                            if (col.id.startsWith("custom:")) {
+                              return <td key={col.id} className="excel-readonly" />;
                             }
                             return <td key={col.id} className="excel-readonly" />;
                           })}

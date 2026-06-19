@@ -1,4 +1,5 @@
 import type { Contact, Lead, LeadStatus } from "./types";
+import type { CustomColumn } from "./types";
 
 export function parseRowKey(rowKey: string): { leadId: string; contactId?: string } {
   const [leadId, contactId] = rowKey.split(":");
@@ -9,10 +10,31 @@ function findLead(leads: Lead[], leadId: string): Lead | undefined {
   return leads.find((l) => l.id === leadId);
 }
 
-export function getCellValue(leads: Lead[], rowKey: string, colId: string): string {
+function isCustomColumn(colId: string, customColumns: CustomColumn[]): CustomColumn | undefined {
+  return customColumns.find((c) => c.key === colId);
+}
+
+export function getCellValue(
+  leads: Lead[],
+  rowKey: string,
+  colId: string,
+  customColumns: CustomColumn[] = []
+): string {
   const { leadId, contactId } = parseRowKey(rowKey);
   const lead = findLead(leads, leadId);
   if (!lead) return "";
+
+  const custom = isCustomColumn(colId, customColumns);
+  if (custom && !contactId) {
+    const val = lead.customValues?.[custom.key];
+    return val != null ? String(val) : "";
+  }
+
+  if (!contactId && colId.startsWith("custom:")) {
+    const key = colId.slice(7);
+    const val = lead.customValues?.[key];
+    return val != null ? String(val) : "";
+  }
 
   if (!contactId) {
     switch (colId) {
@@ -24,6 +46,12 @@ export function getCellValue(leads: Lead[], rowKey: string, colId: string): stri
         return lead.fitReason;
       case "status":
         return lead.status;
+      case "website":
+        return lead.website;
+      case "sector":
+        return lead.sector;
+      case "batch":
+        return lead.batch;
       default:
         return "";
     }
@@ -57,11 +85,42 @@ export function setCellValue(
   colId: string,
   value: string,
   writers: GridWriters,
+  customColumns: CustomColumn[] = [],
   immediate = true
 ): void {
   const { leadId, contactId } = parseRowKey(rowKey);
   const lead = findLead(leads, leadId);
   if (!lead) return;
+
+  const custom = isCustomColumn(colId, customColumns);
+  if (custom && !contactId) {
+    writers.onUpdate(
+      leadId,
+      {
+        customValues: {
+          ...(lead.customValues ?? {}),
+          [custom.key]: value,
+        },
+      },
+      immediate
+    );
+    return;
+  }
+
+  if (!contactId && colId.startsWith("custom:")) {
+    const key = colId.slice(7);
+    writers.onUpdate(
+      leadId,
+      {
+        customValues: {
+          ...(lead.customValues ?? {}),
+          [key]: value,
+        },
+      },
+      immediate
+    );
+    return;
+  }
 
   if (!contactId) {
     switch (colId) {
@@ -73,6 +132,15 @@ export function setCellValue(
         break;
       case "fitReason":
         writers.onUpdate(leadId, { fitReason: value }, immediate);
+        break;
+      case "website":
+        writers.onUpdate(leadId, { website: value }, immediate);
+        break;
+      case "sector":
+        writers.onUpdate(leadId, { sector: value }, immediate);
+        break;
+      case "batch":
+        writers.onUpdate(leadId, { batch: value }, immediate);
         break;
       case "status":
         if (value === "qualified" || value === "not_qualified") {

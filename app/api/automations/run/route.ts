@@ -1,7 +1,16 @@
 import { NextRequest, NextResponse } from "next/server";
+import { generateCustomAiColumn } from "@/lib/automation/custom-column";
 import { generateAiColumn } from "@/lib/automation/claude";
 import { getAiConfig } from "@/lib/automation/provider";
-import { leadToRow, rowToLead, type LeadRow } from "@/lib/data/leads-db";
+import { getApiAuth } from "@/lib/api-auth";
+import { isCloudEnabled } from "@/lib/data/is-cloud";
+import {
+  loadLeadsWithContacts,
+  rowToLead,
+  updateLeadInDb,
+  type LeadRow,
+} from "@/lib/data/leads-db";
+import { getLead, updateLead } from "@/lib/server/store";
 import { createAdminClient } from "@/lib/supabase/admin";
 import type { Lead } from "@/lib/types";
 import {
@@ -13,17 +22,17 @@ import {
 const VALID_COLUMNS = new Set<AiColumnKey>(DEFAULT_AI_COLUMNS);
 
 export async function POST(req: NextRequest) {
-  const userId = req.headers.get("x-user-id");
-  if (!userId) {
-    return NextResponse.json({ error: "Missing user id" }, { status: 400 });
+  const auth = await getApiAuth(req);
+  if (!auth) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const { apiKey, provider } = getAiConfig();
+  const { apiKey } = getAiConfig();
   if (!apiKey) {
     return NextResponse.json(
       {
         error:
-          "Geen AI provider geconfigureerd. Voeg OPENAI_API_KEY of ANTHROPIC_API_KEY toe in .env.local of Vercel.",
+          "Geen AI provider geconfigureerd. Voeg OPENAI_API_KEY of ANTHROPIC_API_KEY toe in Integrations of .env.local.",
       },
       { status: 503 }
     );
@@ -32,45 +41,39 @@ export async function POST(req: NextRequest) {
   const body = (await req.json()) as {
     leadIds: string[];
     columns?: AiColumnKey[];
+    customColumnKey?: string;
+    prompt?: string;
     leads?: Lead[];
   };
 
-  const { leadIds } = body;
+  const { leadIds, customColumnKey, prompt } = body;
   if (!leadIds?.length) {
     return NextResponse.json({ error: "Geen leads geselecteerd" }, { status: 400 });
   }
 
-  const columns = (body.columns ?? DEFAULT_AI_COLUMNS).filter((c) =>
-    VALID_COLUMNS.has(c)
-  );
-  if (!columns.length) {
+  const columns = (body.columns ?? DEFAULT_AI_COLUMNS).filter((c) => VALID_COLUMNS.has(c));
+  const isCustomRun = Boolean(customColumnKey && prompt);
+
+  if (!columns.length && !isCustomRun) {
     return NextResponse.json({ error: "Geen geldige kolommen" }, { status: 400 });
   }
 
   const supabase = createAdminClient();
   let leads: Lead[] = [];
 
-  if (supabase) {
-    const { data: rows, error } = await supabase
-      .from("leads")
-      .select("*")
-      .eq("user_id", userId)
-      .in("id", leadIds);
-
-    if (error) {
-      return NextResponse.json({ error: error.message }, { status: 500 });
-    }
-    leads = ((rows as LeadRow[]) ?? []).map((row) => rowToLead(row));
+  if (isCloudEnabled() && supabase) {
+    const all = await loadLeadsWithContacts(supabase, auth.userId);
+    const idSet = new Set(leadIds);
+    leads = all.filter((l) => idSet.has(l.id));
   }
 
   if (!leads.length && body.leads?.length) {
     const idSet = new Set(leadIds);
     leads = body.leads.filter((l) => idSet.has(l.id));
-  } else if (!leads.length) {
-    return NextResponse.json(
-      { error: "Cloud storage not configured — stuur leads mee voor lokaal gebruik" },
-      { status: 503 }
-    );
+  } else if (!leads.length && !isCloudEnabled()) {
+    leads = leadIds
+      .map((id) => getLead(id))
+      .filter((l): l is Lead => Boolean(l));
   }
 
   if (!leads.length) {
@@ -80,11 +83,19 @@ export async function POST(req: NextRequest) {
   const updated: Lead[] = [];
 
   for (const lead of leads) {
-    const patch: Partial<Lead> = {};
+    const patch: Partial<Lead> = { aiStatus: "done" };
 
     try {
-      for (const column of columns) {
-        patch[column] = await generateAiColumn(column, lead);
+      if (isCustomRun && customColumnKey && prompt) {
+        const value = await generateCustomAiColumn(lead, prompt);
+        patch.customValues = {
+          ...(lead.customValues ?? {}),
+          [customColumnKey]: value,
+        };
+      } else {
+        for (const column of columns) {
+          patch[column] = await generateAiColumn(column, lead);
+        }
       }
     } catch (e) {
       const msg = e instanceof Error ? e.message : "AI generatie mislukt";
@@ -93,31 +104,12 @@ export async function POST(req: NextRequest) {
 
     const merged = { ...lead, ...patch };
 
-    if (supabase) {
-      const dbPatch: Record<string, string> = {};
-      for (const col of AI_COLUMNS) {
-        if (col.key in patch) {
-          dbPatch[col.dbField] = merged[col.key] ?? "";
-        }
-      }
-
-      const { data, error } = await supabase
-        .from("leads")
-        .update({ ...dbPatch, updated_at: new Date().toISOString() })
-        .eq("id", lead.id)
-        .eq("user_id", userId)
-        .select()
-        .single();
-
-      if (error) {
-        const hint = error.message.includes("ai_")
-          ? `${error.message} — Run de SQL migratie in supabase/schema.sql`
-          : error.message;
-        return NextResponse.json({ error: hint }, { status: 500 });
-      }
-      updated.push(rowToLead(data as LeadRow));
+    if (isCloudEnabled() && supabase) {
+      const saved = await updateLeadInDb(supabase, auth.userId, lead.id, patch);
+      updated.push(saved ?? merged);
     } else {
-      updated.push(merged);
+      const saved = updateLead(lead.id, patch);
+      updated.push(saved ?? merged);
     }
   }
 

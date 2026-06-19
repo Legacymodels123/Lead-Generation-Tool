@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import type { CustomColumnType } from "@/lib/types";
+import type { CustomColumnType, ColumnAutomation, ColumnAutomationKind } from "@/lib/types";
 
 const COLUMN_TYPES: { value: CustomColumnType; label: string; description: string }[] = [
   { value: "text", label: "Tekst", description: "Korte of lange tekst" },
@@ -12,8 +12,23 @@ const COLUMN_TYPES: { value: CustomColumnType; label: string; description: strin
   { value: "select", label: "Dropdown", description: "Opties kiezen" },
 ];
 
+const AUTOMATION_TYPES: { value: ColumnAutomationKind | "none"; label: string }[] = [
+  { value: "none", label: "Geen automatisering" },
+  { value: "ai", label: "AI kolom" },
+  { value: "enrich", label: "E-mail verrijken" },
+  { value: "research", label: "Website research" },
+  { value: "score", label: "ICP score" },
+  { value: "hubspot", label: "Sync naar HubSpot" },
+];
+
 interface ColumnBuilderProps {
-  onAdd: (column: { label: string; type: CustomColumnType; selectOptions?: string[]; defaultValue?: string }) => void;
+  onAdd: (column: {
+    label: string;
+    type: CustomColumnType;
+    selectOptions?: string[];
+    defaultValue?: string;
+    automation?: ColumnAutomation;
+  }) => void;
   onClose: () => void;
 }
 
@@ -24,6 +39,8 @@ export default function ColumnBuilder({ onAdd, onClose }: ColumnBuilderProps) {
   const [selectOptions, setSelectOptions] = useState<string[]>([]);
   const [newOption, setNewOption] = useState("");
   const [error, setError] = useState("");
+  const [automationKind, setAutomationKind] = useState<ColumnAutomationKind | "none">("none");
+  const [aiPrompt, setAiPrompt] = useState("Write a one-line sales insight for this company.");
 
   const handleAddOption = () => {
     if (newOption.trim() && !selectOptions.includes(newOption)) {
@@ -50,11 +67,25 @@ export default function ColumnBuilder({ onAdd, onClose }: ColumnBuilderProps) {
       return;
     }
 
+    const automation: ColumnAutomation | undefined =
+      automationKind === "none"
+        ? undefined
+        : automationKind === "ai"
+          ? { kind: "ai", prompt: aiPrompt }
+          : automationKind === "enrich"
+            ? { kind: "enrich", field: "email" }
+            : automationKind === "research"
+              ? { kind: "research", source: "website" }
+              : automationKind === "score"
+                ? { kind: "score" }
+                : { kind: "hubspot" };
+
     onAdd({
       label: label.trim(),
       type,
       defaultValue: defaultValue || undefined,
       selectOptions: type === "select" ? selectOptions : undefined,
+      automation,
     });
 
     setLabel("");
@@ -222,6 +253,50 @@ export default function ColumnBuilder({ onAdd, onClose }: ColumnBuilderProps) {
                   ))}
                 </div>
               )}
+            </div>
+          )}
+
+          <div style={{ marginBottom: "20px" }}>
+            <label style={{ fontSize: "13px", fontWeight: 500, display: "block", marginBottom: "12px" }}>
+              Automatisering
+            </label>
+            <select
+              value={automationKind}
+              onChange={(e) => setAutomationKind(e.target.value as ColumnAutomationKind | "none")}
+              style={{
+                width: "100%",
+                padding: "8px 12px",
+                border: "1px solid #e5e7eb",
+                borderRadius: "6px",
+                fontSize: "13px",
+              }}
+            >
+              {AUTOMATION_TYPES.map((a) => (
+                <option key={a.value} value={a.value}>
+                  {a.label}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {automationKind === "ai" && (
+            <div style={{ marginBottom: "20px" }}>
+              <label style={{ fontSize: "13px", fontWeight: 500, display: "block", marginBottom: "6px" }}>
+                AI prompt
+              </label>
+              <textarea
+                value={aiPrompt}
+                onChange={(e) => setAiPrompt(e.target.value)}
+                rows={3}
+                style={{
+                  width: "100%",
+                  padding: "8px 12px",
+                  border: "1px solid #e5e7eb",
+                  borderRadius: "6px",
+                  fontSize: "13px",
+                  fontFamily: "inherit",
+                }}
+              />
             </div>
           )}
 

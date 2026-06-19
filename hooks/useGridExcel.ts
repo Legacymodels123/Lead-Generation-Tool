@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { Contact, Lead } from "@/lib/types";
+import type { Contact, Lead, CustomColumn } from "@/lib/types";
 import { getCellValue, setCellValue, type GridWriters } from "@/lib/grid-cell-data";
 import {
   buildNavRows,
@@ -25,12 +25,23 @@ import {
 interface Options {
   leads: Lead[];
   visibleColumns: string[];
+  customColumns?: CustomColumn[];
+  accountExtraEditable?: string[];
   writers: GridWriters;
   gridRef: React.RefObject<HTMLDivElement | null>;
 }
 
-export function useGridExcel({ leads, visibleColumns, writers, gridRef }: Options) {
-  const navRows = buildNavRows(leads, visibleColumns);
+export function useGridExcel({
+  leads,
+  visibleColumns,
+  customColumns = [],
+  accountExtraEditable = [],
+  writers,
+  gridRef,
+}: Options) {
+  const navRows = buildNavRows(leads, visibleColumns, accountExtraEditable);
+  const customColumnsRef = useRef(customColumns);
+  customColumnsRef.current = customColumns;
   const navRowsRef = useRef(navRows);
   navRowsRef.current = navRows;
 
@@ -97,7 +108,7 @@ export function useGridExcel({ leads, visibleColumns, writers, gridRef }: Option
 
   const startEdit = useCallback(
     (cell: CellAddress, replaceWith?: string) => {
-      const current = getCellValue(leadsRef.current, cell.rowKey, cell.colId);
+      const current = getCellValue(leadsRef.current, cell.rowKey, cell.colId, customColumnsRef.current);
       setEditingCell(cell);
       setEditDraft(replaceWith !== undefined ? replaceWith : current);
       setSelection({ anchor: cell, focus: cell });
@@ -109,7 +120,7 @@ export function useGridExcel({ leads, visibleColumns, writers, gridRef }: Option
   const commitEdit = useCallback(() => {
     const cell = editingRef.current;
     if (!cell) return;
-    setCellValue(leadsRef.current, cell.rowKey, cell.colId, editDraftRef.current, writersRef.current);
+    setCellValue(leadsRef.current, cell.rowKey, cell.colId, editDraftRef.current, writersRef.current, customColumnsRef.current);
     setEditingCell(null);
   }, []);
 
@@ -237,7 +248,7 @@ export function useGridExcel({ leads, visibleColumns, writers, gridRef }: Option
 
       if (e.key === "Delete" || e.key === "Backspace") {
         e.preventDefault();
-        setCellValue(leadsRef.current, focus.rowKey, focus.colId, "", writersRef.current);
+        setCellValue(leadsRef.current, focus.rowKey, focus.colId, "", writersRef.current, customColumnsRef.current);
         return;
       }
 
@@ -336,7 +347,7 @@ export function useGridExcel({ leads, visibleColumns, writers, gridRef }: Option
   const formulaValue = focus
     ? isEditing(focus)
       ? editDraft
-      : getCellValue(leads, focus.rowKey, focus.colId)
+      : getCellValue(leads, focus.rowKey, focus.colId, customColumns)
     : "";
 
   const onFormulaChange = useCallback(
@@ -351,7 +362,7 @@ export function useGridExcel({ leads, visibleColumns, writers, gridRef }: Option
   const onFormulaCommit = useCallback(() => {
     if (editingRef.current) commitEdit();
     else if (focus) {
-      setCellValue(leadsRef.current, focus.rowKey, focus.colId, formulaValue, writersRef.current);
+      setCellValue(leadsRef.current, focus.rowKey, focus.colId, formulaValue, writersRef.current, customColumnsRef.current);
     }
   }, [focus, formulaValue, commitEdit]);
 

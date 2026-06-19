@@ -2,21 +2,29 @@
 
 import { useState } from "react";
 import { GRID_COLUMNS } from "@/lib/grid-columns";
+import { customColumnGridId, mergeGridColumns } from "@/lib/merge-grid-columns";
+import type { CustomColumn } from "@/lib/types";
 
 interface Props {
   visibleColumns: string[];
+  customColumns?: CustomColumn[];
   onChange: (columns: string[]) => void;
 }
 
-export default function ColumnPicker({ visibleColumns, onChange }: Props) {
+export default function ColumnPicker({
+  visibleColumns,
+  customColumns = [],
+  onChange,
+}: Props) {
   const [open, setOpen] = useState(false);
+  const allColumns = mergeGridColumns(customColumns);
+  const order = allColumns.map((c) => c.id);
 
   function toggle(id: string) {
     if (visibleColumns.includes(id)) {
       if (visibleColumns.length <= 3) return;
       onChange(visibleColumns.filter((c) => c !== id));
     } else {
-      const order = GRID_COLUMNS.map((c) => c.id);
       onChange([...visibleColumns, id].sort((a, b) => order.indexOf(a) - order.indexOf(b)));
     }
   }
@@ -39,18 +47,16 @@ export default function ColumnPicker({ visibleColumns, onChange }: Props) {
       {open && (
         <div className="column-picker-popover">
           <div className="column-picker-title">Zichtbare kolommen</div>
-          {GRID_COLUMNS.map((col) => {
+          {allColumns.map((col) => {
             const visible = visibleColumns.includes(col.id);
             const idx = visibleColumns.indexOf(col.id);
+            const isCustom = col.id.startsWith("custom:");
             return (
               <div key={col.id} className="column-picker-row">
                 <label>
-                  <input
-                    type="checkbox"
-                    checked={visible}
-                    onChange={() => toggle(col.id)}
-                  />
+                  <input type="checkbox" checked={visible} onChange={() => toggle(col.id)} />
                   {col.label}
+                  {isCustom && <span className="column-picker-custom"> custom</span>}
                 </label>
                 {visible && (
                   <span className="column-picker-move">

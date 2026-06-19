@@ -8,11 +8,56 @@ export type DmuRole = "marketing_brand" | "ceo_owner";
 
 export type TeamMemberRole = "admin" | "member";
 
-export type IntegrationProvider = "linkedin" | "hubspot" | "salesnavigator";
+export type IntegrationProvider =
+  | "linkedin"
+  | "hubspot"
+  | "salesnavigator"
+  | "openai"
+  | "anthropic"
+  | "hunter"
+  | "apollo"
+  | "firecrawl";
 
 export type IntegrationStatus = "connected" | "pending" | "expired" | "error";
 
-export type CustomColumnType = "text" | "number" | "date" | "select" | "email" | "url";
+export type CustomColumnType =
+  | "text"
+  | "number"
+  | "date"
+  | "select"
+  | "email"
+  | "url"
+  | "ai_enriched";
+
+export type ColumnConditionOperator = "eq" | "neq" | "empty" | "not_empty";
+
+export interface ColumnCondition {
+  field: string;
+  operator: ColumnConditionOperator;
+  value?: string;
+}
+
+export interface McpConnection {
+  id: string;
+  name: string;
+  url: string;
+  authType: "none" | "bearer" | "header";
+  token?: string;
+  headers?: Record<string, string>;
+  enabled: boolean;
+  lastStatus?: "ok" | "error" | "unknown";
+  lastCheckedAt?: string;
+}
+
+export type ColumnAutomationKind = "ai" | "enrich" | "research" | "score" | "hubspot";
+
+export interface ColumnAutomation {
+  kind: ColumnAutomationKind;
+  prompt?: string;
+  field?: "email" | "phone";
+  source?: "website";
+  hubspotProperty?: string;
+}
 
 export type ImportExportJobType = "import" | "export";
 
@@ -71,6 +116,7 @@ export interface Lead {
   aiQualificationScore?: number;
   contacts: Contact[];
   expanded?: boolean;
+  customValues?: Record<string, string>;
 }
 
 export interface Batch {
@@ -126,12 +172,17 @@ export interface ColumnConfig {
 export interface WorkspaceConfig {
   apiKeys?: {
     openai?: string;
+    anthropic?: string;
     hubspot?: string;
+    hunter?: string;
+    apollo?: string;
+    instantly?: string;
     lusha?: string;
   };
-  oauth?: Record<string, any>;
+  oauth?: Record<string, unknown>;
   columns?: ColumnConfig[];
   leadStatuses?: LeadStatus[];
+  mcpServers?: McpConnection[];
 }
 
 export interface Workspace {
@@ -195,6 +246,9 @@ export interface CustomColumn {
   order: number;
   defaultValue?: string | number | boolean;
   selectOptions?: string[];
+  aiPrompt?: string;
+  automation?: ColumnAutomation;
+  condition?: ColumnCondition;
   createdAt: string;
   updatedAt: string;
 }

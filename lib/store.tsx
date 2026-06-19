@@ -11,7 +11,8 @@ import {
 } from "react";
 import { useAuth } from "./auth";
 import { WORKFLOW_PRESETS } from "./automation/presets";
-import type { Batch, Contact, Lead } from "./types";
+import type { Batch, Contact, CustomColumn, Lead } from "./types";
+import { DEFAULT_WORKSPACE_ID } from "./types";
 import type { AiColumnKey } from "./types/automation";
 import { fitScore } from "./utils";
 import { updateContactInLead } from "./utils/contacts";
@@ -19,6 +20,7 @@ import { updateContactInLead } from "./utils/contacts";
 interface AppContextValue {
   leads: Lead[];
   batches: Batch[];
+  customColumns: CustomColumn[];
   toast: string | null;
   showToast: (msg: string) => void;
   updateLead: (id: string, updates: Partial<Lead>, immediate?: boolean) => void;
@@ -27,9 +29,13 @@ interface AppContextValue {
   addLead: (lead: Omit<Lead, "id" | "workspaceId">) => Promise<string | null>;
   addQuickRow: () => Promise<void>;
   refetchLeads: () => Promise<void>;
+  refetchColumns: () => Promise<void>;
+  deleteCustomColumn: (columnId: string) => Promise<void>;
   recalculateScores: (ids: string[]) => Promise<string | null>;
   enrichLeads: (ids: string[]) => Promise<string | null>;
   runAiColumns: (ids: string[], columns: AiColumnKey[]) => Promise<string | null>;
+  runColumnAutomation: (column: CustomColumn, ids: string[]) => Promise<string | null>;
+  researchWebsite: (ids: string[], columnKey?: string) => Promise<string | null>;
   syncHubSpot: (ids: string[]) => Promise<string | null>;
   pushInstantly: (ids: string[]) => Promise<string | null>;
   runWorkflow: (presetId: string, ids: string[]) => Promise<string | null>;
@@ -38,9 +44,10 @@ interface AppContextValue {
 const AppContext = createContext<AppContextValue | null>(null);
 
 export function AppProvider({ children }: { children: ReactNode }) {
-  const { token } = useAuth();
+  const { token, user } = useAuth();
   const [leads, setLeads] = useState<Lead[]>([]);
   const [batches, setBatches] = useState<Batch[]>([]);
+  const [customColumns, setCustomColumns] = useState<CustomColumn[]>([]);
   const [toast, setToast] = useState<string | null>(null);
 
   const showToast = useCallback((msg: string) => {
@@ -50,11 +57,15 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const authHeaders = useCallback((): HeadersInit | undefined => {
     if (!token) return undefined;
-    return {
+    const headers: Record<string, string> = {
       Authorization: `Bearer ${token}`,
       "Content-Type": "application/json",
     };
-  }, [token]);
+    if (user?.id) headers["x-user-id"] = user.id;
+    if (user?.workspaceId) headers["x-workspace-id"] = user.workspaceId;
+    else headers["x-workspace-id"] = DEFAULT_WORKSPACE_ID;
+    return headers;
+  }, [token, user?.id, user?.workspaceId]);
 
   const refetchLeads = useCallback(async () => {
     if (!token) {
@@ -78,9 +89,25 @@ export function AppProvider({ children }: { children: ReactNode }) {
     }
   }, [token, showToast]);
 
+  const refetchColumns = useCallback(async () => {
+    const workspaceId = user?.workspaceId ?? DEFAULT_WORKSPACE_ID;
+    try {
+      const response = await fetch(`/api/columns?workspaceId=${encodeURIComponent(workspaceId)}`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+      });
+      if (response.ok) {
+        const data = await response.json();
+        setCustomColumns(data.custom || []);
+      }
+    } catch (error) {
+      console.error("Failed to fetch columns:", error);
+    }
+  }, [token, user?.workspaceId]);
+
   useEffect(() => {
     refetchLeads();
-  }, [token, refetchLeads]);
+    refetchColumns();
+  }, [token, refetchLeads, refetchColumns]);
 
   const saveTimersRef = useRef(new Map<string, ReturnType<typeof setTimeout>>());
   const pendingUpdatesRef = useRef(new Map<string, Partial<Lead>>());
@@ -233,13 +260,19 @@ export function AppProvider({ children }: { children: ReactNode }) {
     async (ids: string[]) => {
       if (!token) return "Not authenticated";
 
+      for (const id of ids) {
+        setLeads((prev) =>
+          prev.map((l) => (l.id === id ? { ...l, aiStatus: "running" as const } : l))
+        );
+      }
+
       let ok = 0;
       for (const leadId of ids) {
         try {
           const response = await fetch("/api/leads/enrich", {
             method: "POST",
             headers: authHeaders(),
-            body: JSON.stringify({ leadId }),
+            body: JSON.stringify({ leadId, leads }),
           });
           if (response.ok) {
             const data = await response.json();
@@ -247,42 +280,104 @@ export function AppProvider({ children }: { children: ReactNode }) {
               prev.map((l) => (l.id === leadId ? data.lead : l))
             );
             ok++;
+          } else {
+            setLeads((prev) =>
+              prev.map((l) => (l.id === leadId ? { ...l, aiStatus: "error" as const } : l))
+            );
           }
         } catch {
-          /* continue */
+          setLeads((prev) =>
+            prev.map((l) => (l.id === leadId ? { ...l, aiStatus: "error" as const } : l))
+          );
         }
       }
       showToast(ok ? `Enriched ${ok} lead(s)` : "Enrichment failed");
       return ok ? null : "Enrichment failed";
     },
-    [token, authHeaders, showToast]
+    [token, authHeaders, showToast, leads]
   );
 
   const runAiColumns = useCallback(
     async (ids: string[], columns: AiColumnKey[]) => {
+      if (!token) return "Not authenticated";
+
       for (const id of ids) {
-        const lead = leads.find((l) => l.id === id);
-        if (!lead) continue;
-        const patch: Partial<Lead> = { aiStatus: "done" };
-        if (columns.includes("aiMessage")) {
-          patch.aiMessage =
-            lead.aiMessage ||
-            `Hi ${lead.contactName || "there"},\n\nI wanted to reach out about a partnership with ${lead.company}.\n\nBest regards`;
-        }
-        if (columns.includes("aiSummary")) {
-          patch.aiSummary =
-            lead.aiSummary ||
-            `${lead.company} operates in ${lead.sector || "agri"} (${lead.country}).`;
-        }
-        if (columns.includes("aiNextStep")) {
-          patch.aiNextStep = lead.aiNextStep || "Schedule intro call within 5 business days.";
-        }
-        await updateLead(id, patch);
+        setLeads((prev) =>
+          prev.map((l) => (l.id === id ? { ...l, aiStatus: "running" as const } : l))
+        );
       }
-      showToast(`AI columns generated for ${ids.length} lead(s)`);
-      return null;
+
+      try {
+        const response = await fetch("/api/automations/run", {
+          method: "POST",
+          headers: authHeaders(),
+          body: JSON.stringify({ leadIds: ids, columns, leads }),
+        });
+        if (!response.ok) {
+          const data = await response.json().catch(() => ({}));
+          return (data.error as string) || "AI generation failed";
+        }
+        const updated = (await response.json()) as Lead[];
+        const byId = new Map(updated.map((l) => [l.id, l]));
+        setLeads((prev) => prev.map((l) => byId.get(l.id) ?? l));
+        showToast(`AI columns generated for ${ids.length} lead(s)`);
+        return null;
+      } catch {
+        return "AI generation failed";
+      }
     },
-    [leads, updateLead, showToast]
+    [token, authHeaders, leads, showToast]
+  );
+
+  const researchWebsite = useCallback(
+    async (ids: string[], columnKey?: string) => {
+      if (!token) return "Not authenticated";
+      let ok = 0;
+      for (const leadId of ids) {
+        setLeads((prev) =>
+          prev.map((l) => (l.id === leadId ? { ...l, aiStatus: "running" as const } : l))
+        );
+        try {
+          const response = await fetch("/api/research/website", {
+            method: "POST",
+            headers: authHeaders(),
+            body: JSON.stringify({
+              leadId,
+              outputColumnKey: columnKey,
+              leads,
+            }),
+          });
+          if (response.ok) {
+            const data = await response.json();
+            setLeads((prev) => prev.map((l) => (l.id === leadId ? data.lead : l)));
+            ok++;
+          }
+        } catch {
+          /* continue */
+        }
+      }
+      showToast(ok ? `Researched ${ok} website(s)` : "Website research failed");
+      return ok ? null : "Website research failed";
+    },
+    [token, authHeaders, leads, showToast]
+  );
+
+  const deleteCustomColumn = useCallback(
+    async (columnId: string) => {
+      try {
+        const response = await fetch(`/api/columns/${columnId}`, {
+          method: "DELETE",
+          headers: authHeaders(),
+        });
+        if (response.ok) {
+          await refetchColumns();
+          showToast("Column deleted");
+        }
+      } catch {
+        showToast("Failed to delete column");
+      }
+    },
+    [authHeaders, refetchColumns, showToast]
   );
 
   const syncHubSpot = useCallback(
@@ -298,13 +393,64 @@ export function AppProvider({ children }: { children: ReactNode }) {
           const data = await response.json().catch(() => ({}));
           return (data.error as string) || "HubSpot sync failed";
         }
-        showToast(`Synced ${ids.length} lead(s) to HubSpot`);
+        const data = await response.json();
+        if (data.leads?.length) {
+          const byId = new Map((data.leads as Lead[]).map((l) => [l.id, l]));
+          setLeads((prev) => prev.map((l) => byId.get(l.id) ?? l));
+        }
+        showToast(`Synced ${data.synced ?? ids.length} lead(s) to HubSpot`);
         return null;
       } catch {
         return "HubSpot sync failed";
       }
     },
     [token, authHeaders, leads, showToast]
+  );
+
+  const runColumnAutomation = useCallback(
+    async (column: CustomColumn, ids: string[]) => {
+      if (!column.automation) return null;
+      const kind = column.automation.kind;
+
+      if (kind === "enrich") return enrichLeads(ids);
+      if (kind === "score") return recalculateScores(ids);
+      if (kind === "hubspot") return syncHubSpot(ids);
+      if (kind === "research") return researchWebsite(ids, column.key);
+
+      if (kind === "ai") {
+        if (!token) return "Not authenticated";
+        for (const id of ids) {
+          setLeads((prev) =>
+            prev.map((l) => (l.id === id ? { ...l, aiStatus: "running" as const } : l))
+          );
+        }
+        try {
+          const response = await fetch("/api/automations/run", {
+            method: "POST",
+            headers: authHeaders(),
+            body: JSON.stringify({
+              leadIds: ids,
+              customColumnKey: column.key,
+              prompt: column.automation.prompt || column.aiPrompt,
+              leads,
+            }),
+          });
+          if (!response.ok) {
+            const data = await response.json().catch(() => ({}));
+            return (data.error as string) || "Column automation failed";
+          }
+          const updated = (await response.json()) as Lead[];
+          const byId = new Map(updated.map((l) => [l.id, l]));
+          setLeads((prev) => prev.map((l) => byId.get(l.id) ?? l));
+          showToast(`Ran "${column.label}" on ${ids.length} row(s)`);
+          return null;
+        } catch {
+          return "Column automation failed";
+        }
+      }
+      return null;
+    },
+    [token, authHeaders, leads, showToast, enrichLeads, recalculateScores, syncHubSpot, researchWebsite]
   );
 
   const pushInstantly = useCallback(
@@ -360,6 +506,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       value={{
         leads,
         batches,
+        customColumns,
         toast,
         showToast,
         updateLead,
@@ -368,9 +515,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
         addLead,
         addQuickRow,
         refetchLeads,
+        refetchColumns,
+        deleteCustomColumn,
         recalculateScores,
         enrichLeads,
         runAiColumns,
+        runColumnAutomation,
+        researchWebsite,
         syncHubSpot,
         pushInstantly,
         runWorkflow,
