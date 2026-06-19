@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { Contact, CustomColumn, Lead, LeadStatus } from "@/lib/types";
 import type { AiStatus } from "@/lib/types";
 import { getDmuRoleLabel } from "@/lib/dmu/roles";
@@ -8,6 +8,7 @@ import type { GridColumnDef } from "@/lib/grid-columns";
 import { isColumnVisibleForLead } from "@/lib/column-conditions";
 import { customColumnGridId, findCustomColumn, mergeGridColumns } from "@/lib/merge-grid-columns";
 import type { CellAddress } from "@/lib/grid-navigation";
+import { BLANK_ROW_COUNT, isPhantomRowKey, PHANTOM_ROW_PREFIX } from "@/lib/grid-cell-data";
 import { columnTypeIcon } from "@/lib/grid-column-icons";
 import type { SortDir, SortField } from "@/lib/views";
 import { scoreColor } from "@/lib/utils";
@@ -50,8 +51,6 @@ export type ColumnAction =
 
 export type ColumnRunScope = "selection" | "first1" | "first10" | "first100";
 
-const MIN_GRID_ROWS = 40;
-
 interface Props {
   leads: Lead[];
   visibleColumns: string[];
@@ -62,10 +61,10 @@ interface Props {
   onSelectRow: (id: string) => void;
   onToggleSelect: (id: string, shiftKey?: boolean) => void;
   onToggleSelectAll: (ids: string[]) => void;
-  onUpdate: (id: string, updates: Partial<Lead>) => void;
+  onUpdate: (id: string, updates: Partial<Lead>, immediate?: boolean) => void;
   onUpdateContact: (leadId: string, contactId: string, updates: Partial<Contact>) => void;
   onToggleExpand: (id: string) => void;
-  onAddRow: () => void;
+  onAddRow: () => Promise<string | null>;
   onCopyMessage: (id: string) => void;
   onSort: (field: SortField) => void;
   onColumnAction: (action: ColumnAction, scope?: ColumnRunScope) => void;
@@ -240,7 +239,41 @@ export default function LeadsGrid({
 }: Props) {
   const gridRef = useRef<HTMLDivElement>(null);
   const headerCheckRef = useRef<HTMLInputElement>(null);
-  const writers = useMemo(() => ({ onUpdate, onUpdateContact }), [onUpdate, onUpdateContact]);
+  const phantomMapRef = useRef(new Map<string, string>());
+  const phantomPendingRef = useRef(new Map<string, Promise<string>>());
+
+  const ensurePhantomLead = useCallback(
+    async (phantomKey: string): Promise<string> => {
+      const existing = phantomMapRef.current.get(phantomKey);
+      if (existing) return existing;
+      const pending = phantomPendingRef.current.get(phantomKey);
+      if (pending) return pending;
+
+      const promise = onAddRow().then((id) => {
+        if (!id) throw new Error("Could not create company");
+        phantomMapRef.current.set(phantomKey, id);
+        phantomPendingRef.current.delete(phantomKey);
+        return id;
+      });
+      phantomPendingRef.current.set(phantomKey, promise);
+      return promise;
+    },
+    [onAddRow]
+  );
+
+  const writers = useMemo(
+    () => ({
+      onUpdate: (id: string, updates: Partial<Lead>, immediate?: boolean) => {
+        if (isPhantomRowKey(id)) {
+          void ensurePhantomLead(id).then((realId) => onUpdate(realId, updates, immediate));
+          return;
+        }
+        onUpdate(id, updates, immediate);
+      },
+      onUpdateContact,
+    }),
+    [onUpdate, onUpdateContact, ensurePhantomLead]
+  );
 
   const accountExtraEditable = useMemo(
     () =>
@@ -324,13 +357,68 @@ export default function LeadsGrid({
     .map((id) => allGridColumns.find((c) => c.id === id))
     .filter((c): c is GridColumnDef => Boolean(c));
   const colSpan = 2 + cols.length;
-  const blankRowCount = Math.max(0, MIN_GRID_ROWS - leads.length);
 
-  function renderAccountCell(colId: string, lead: Lead) {
+  function renderAccountCell(colId: string, lead: Lead, phantom = false) {
     const score = lead.score ?? 0;
     const color = scoreColor(score);
     const contactCount = lead.contacts?.length ?? 0;
     const rowKey = lead.id;
+
+    if (phantom) {
+      const editable = new Set([
+        "company",
+        "sector",
+        "city",
+        "country",
+        "website",
+        "market",
+        "fitReason",
+        "status",
+      ]);
+      const custom = findCustomColumn(customColumns, colId);
+      if (editable.has(colId) || (custom && (custom.type === "text" || custom.type === "select"))) {
+        switch (colId) {
+          case "company":
+            return ec(rowKey, colId, "", {
+              className: "excel-cell-bold excel-cell-placeholder",
+            });
+          case "sector":
+            return ec(rowKey, colId, "", { className: "excel-cell-placeholder" });
+          case "city":
+            return ec(rowKey, colId, "", { className: "excel-cell-placeholder" });
+          case "country":
+            return ec(rowKey, colId, "", { className: "excel-cell-placeholder" });
+          case "website":
+            return ec(rowKey, colId, "", {
+              className: "excel-cell-url excel-cell-placeholder",
+            });
+          case "market":
+            return ec(rowKey, colId, "", { className: "excel-cell-placeholder" });
+          case "fitReason":
+            return ec(rowKey, colId, "", { className: "excel-cell-placeholder" });
+          case "status":
+            return ec(rowKey, colId, "not_qualified", {
+              type: "select",
+              options: STATUS_OPTIONS,
+              displayValue: STATUS_LABELS.not_qualified,
+            });
+          default:
+            if (custom?.type === "select") {
+              return ec(rowKey, colId, "", {
+                type: "select",
+                options: (custom.selectOptions ?? []).map((o) => ({ value: o, label: o })),
+                className: "excel-cell-placeholder",
+              });
+            }
+            return ec(rowKey, colId, "", { className: "excel-cell-placeholder" });
+        }
+      }
+      return (
+        <td key={colId} className="excel-cell-blank">
+          <span className="excel-cell-display" />
+        </td>
+      );
+    }
 
     switch (colId) {
       case "company":
@@ -602,22 +690,22 @@ export default function LeadsGrid({
                 </Fragment>
               );
             })}
-            {Array.from({ length: blankRowCount }).map((_, i) => (
-              <tr key={`blank-${i}`} className="grid-row blank-row">
-                <td className="smooth-check-col" />
-                <td className="smooth-open-col" />
-                {cols.map((col) => (
-                  <td key={col.id} className="excel-cell-blank">
-                    <span className="excel-cell-display" />
-                  </td>
-                ))}
-              </tr>
-            ))}
+            {Array.from({ length: BLANK_ROW_COUNT }).map((_, i) => {
+              const phantomId = `${PHANTOM_ROW_PREFIX}${i}`;
+              const phantomLead = { id: phantomId } as Lead;
+              return (
+                <tr key={phantomId} className="grid-row account-row blank-row">
+                  <td className="smooth-check-col" />
+                  <td className="smooth-open-col" />
+                  {cols.map((col) => renderAccountCell(col.id, phantomLead, true))}
+                </tr>
+              );
+            })}
           </tbody>
         </table>
       </div>
       <div className="smooth-grid-footer">
-        <button type="button" className="smooth-add-row" onClick={onAddRow}>
+        <button type="button" className="smooth-add-row" onClick={() => void onAddRow()}>
           + Add row
         </button>
         <span className="smooth-record-count">{recordCount ?? leads.length} records</span>

@@ -90,12 +90,11 @@ export default function ExcelCell({
         e.stopPropagation();
         onDragStart(cell);
         onSelect(cell, e.shiftKey);
+        if (!isEditing) {
+          onStartEdit(cell);
+        }
       }}
       onMouseEnter={() => onDragEnter(cell)}
-      onDoubleClick={(e) => {
-        e.stopPropagation();
-        onStartEdit(cell);
-      }}
     >
       {isEditing ? (
         type === "select" ? (

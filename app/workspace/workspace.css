@@ -134,8 +134,11 @@
   background: #fff;
   border: 1px solid #e2e8f0;
   border-radius: 12px;
-  overflow: hidden;
+  overflow: visible;
   box-shadow: 0 1px 3px rgba(15, 23, 42, 0.06);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
 }
 
 .ws-toolbar {
@@ -197,6 +200,148 @@
 .ws-hint {
   font-size: 11px;
   color: #94a3b8;
+}
+
+.ws-ag-grid-host {
+  height: calc(100vh - 200px);
+  min-height: 420px;
+  position: relative;
+}
+
+.ws-ag-theme {
+  --ag-font-family: var(--font-sans), system-ui, -apple-system, sans-serif;
+  --ag-font-size: 13px;
+  --ag-row-height: 36px;
+  --ag-header-height: 38px;
+  --ag-header-background-color: #fafbfc;
+  --ag-header-foreground-color: #475569;
+  --ag-border-color: #eceef1;
+  --ag-row-border-color: #eceef1;
+  --ag-background-color: #fff;
+  --ag-odd-row-background-color: #fff;
+  --ag-row-hover-color: #f7f8fa;
+  --ag-selected-row-background-color: #f0f4ff;
+  --ag-range-selection-border-color: #6366f1;
+  --ag-input-focus-border-color: #2563eb;
+  --ag-checkbox-checked-color: #2563eb;
+  --ag-header-column-separator-display: block;
+  --ag-header-column-separator-color: #eceef1;
+  --ag-cell-horizontal-padding: 12px;
+}
+
+.ws-ag-theme .ag-root-wrapper {
+  border: none;
+  border-radius: 0 0 12px 12px;
+}
+
+.ws-ag-theme .ag-header-cell-label {
+  font-weight: 600;
+  font-size: 12px;
+  color: #475569;
+}
+
+.ws-ag-theme .ag-cell {
+  display: flex;
+  align-items: center;
+  line-height: 1.35;
+}
+
+.ws-ag-theme .ag-cell-focus:not(.ag-cell-range-selected) {
+  border: 1px solid #2563eb !important;
+  outline: none;
+}
+
+.ws-quick-filter {
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 6px 12px;
+  font-size: 13px;
+  min-width: 180px;
+  background: #fff;
+}
+
+.ws-quick-filter:focus {
+  outline: none;
+  border-color: #2563eb;
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12);
+}
+
+.ws-record-count {
+  font-size: 12px;
+  color: #64748b;
+  font-weight: 500;
+}
+
+.ws-empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  gap: 12px;
+  color: #64748b;
+  font-size: 14px;
+}
+
+.ws-cell-empty {
+  color: #cbd5e1;
+  font-size: 12px;
+  font-style: italic;
+}
+
+.ws-cell-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  width: 100%;
+}
+
+.ws-cell-link {
+  color: #2563eb;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  width: 100%;
+}
+
+.ws-field-pill {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.4;
+  white-space: nowrap;
+}
+
+.ws-pill-status-new { background: #eff6ff; color: #1d4ed8; }
+.ws-pill-status-researching { background: #fef3c7; color: #92400e; }
+.ws-pill-status-validation { background: #fff7ed; color: #c2410c; }
+.ws-pill-status-qualified { background: #dcfce7; color: #166534; }
+.ws-pill-status-contacted { background: #f3e8ff; color: #6b21a8; }
+.ws-pill-status-rejected { background: #fee2e2; color: #991b1b; }
+
+.ws-pill-conf-low { background: #f1f5f9; color: #64748b; }
+.ws-pill-conf-medium { background: #fef3c7; color: #92400e; }
+.ws-pill-conf-high { background: #dcfce7; color: #166534; }
+
+.ws-pill-fit-weak { background: #fee2e2; color: #991b1b; }
+.ws-pill-fit-medium { background: #fef3c7; color: #92400e; }
+.ws-pill-fit-strong { background: #dcfce7; color: #166534; }
+
+.ws-cell-placeholder {
+  color: #94a3b8;
+  font-size: 12px;
+  font-style: italic;
+}
+
+.ws-draft-row .ag-cell {
+  background: #fafbfc !important;
+}
+
+.ws-draft-row:hover .ag-cell {
+  background: #f3f4f6 !important;
 }
 
 .ws-ag-grid .ag-root-wrapper {

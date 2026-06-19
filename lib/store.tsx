@@ -27,7 +27,7 @@ interface AppContextValue {
   updateContact: (leadId: string, contactId: string, updates: Partial<Contact>) => void;
   toggleExpand: (id: string) => void;
   addLead: (lead: Omit<Lead, "id" | "workspaceId">) => Promise<string | null>;
-  addQuickRow: () => Promise<void>;
+  addQuickRow: () => Promise<string | null>;
   refetchLeads: () => Promise<void>;
   refetchColumns: () => Promise<void>;
   deleteCustomColumn: (columnId: string) => Promise<void>;
@@ -220,8 +220,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
     [token, authHeaders, showToast]
   );
 
-  const addQuickRow = useCallback(async () => {
-    await addLead({
+  const addQuickRow = useCallback(async (): Promise<string | null> => {
+    return addLead({
       company: "",
       city: "",
       country: "",

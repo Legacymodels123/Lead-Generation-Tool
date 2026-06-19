@@ -92,6 +92,14 @@ function ModernLayoutInner({ children }: Props) {
             <span className="bl-nav-icon">▦</span>
             {!collapsed && 'Dashboard'}
           </Link>
+          <Link
+            href="/workspace"
+            className={`bl-nav-item${pathname.startsWith('/workspace') ? ' active' : ''}`}
+            title="Lead workspace"
+          >
+            <span className="bl-nav-icon">⊞</span>
+            {!collapsed && 'Lead workspace'}
+          </Link>
         </nav>
 
         {!collapsed && (

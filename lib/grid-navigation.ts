@@ -1,5 +1,6 @@
 import type { KeyboardEvent } from "react";
 import type { Lead } from "./types";
+import { BLANK_ROW_COUNT, PHANTOM_ROW_PREFIX } from "./grid-cell-data";
 
 export interface CellAddress {
   rowKey: string;
@@ -11,13 +12,23 @@ export interface NavRow {
   cols: string[];
 }
 
-const ACCOUNT_EDITABLE = new Set(["company", "market", "fitReason", "status"]);
+const ACCOUNT_EDITABLE = new Set([
+  "company",
+  "sector",
+  "city",
+  "country",
+  "website",
+  "market",
+  "fitReason",
+  "status",
+]);
 const CONTACT_EDITABLE = new Set(["fitReason", "dmu", "email", "phone"]);
 
 export function buildNavRows(
   leads: Lead[],
   visibleColumns: string[],
-  accountExtraEditable: string[] = []
+  accountExtraEditable: string[] = [],
+  blankRowCount = BLANK_ROW_COUNT
 ): NavRow[] {
   const accountCols = visibleColumns.filter(
     (id) => ACCOUNT_EDITABLE.has(id) || accountExtraEditable.includes(id)
@@ -35,6 +46,12 @@ export function buildNavRows(
           rows.push({ rowKey: `${lead.id}:${contact.id}`, cols: contactCols });
         }
       }
+    }
+  }
+
+  for (let i = 0; i < blankRowCount; i++) {
+    if (accountCols.length) {
+      rows.push({ rowKey: `${PHANTOM_ROW_PREFIX}${i}`, cols: accountCols });
     }
   }
 

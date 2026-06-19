@@ -7,6 +7,7 @@ import {
   ModuleRegistry,
   type CellValueChangedEvent,
   type ColDef,
+  type GridReadyEvent,
   type ICellRendererParams,
 } from "ag-grid-community";
 import "ag-grid-community/styles/ag-grid.css";
@@ -15,13 +16,22 @@ import "ag-grid-community/styles/ag-theme-quartz.css";
 import { useWorkspaceFetch } from "@/lib/workspace/fetch";
 import {
   CONFIDENCE_LEVELS,
+  DRAFT_ROW_ID,
   LEAD_FIT_LEVELS,
   LEAD_STATUSES,
   REQUIRED_FIELDS,
   SEGMENT_OPTIONS,
 } from "@/lib/workspace/constants";
+import { createDraftWorkspaceLead, isDraftWorkspaceLead } from "@/lib/workspace/draft-row";
 import { isFieldMissing } from "@/lib/workspace/validation";
 import type { WorkspaceLead } from "@/lib/workspace/types";
+import {
+  ConfidenceCellRenderer,
+  LeadFitCellRenderer,
+  StatusCellRenderer,
+  TextCellRenderer,
+  ValidationCellRenderer,
+} from "@/components/workspace/ag-grid-cells";
 
 ModuleRegistry.registerModules([AllCommunityModule]);
 
@@ -55,26 +65,40 @@ function EnrichButtonRenderer(params: ICellRendererParams<WorkspaceLead>) {
     <button
       type="button"
       className="ws-enrich-btn"
-      onClick={enrich}
+      onClick={(e) => {
+        e.stopPropagation();
+        void enrich();
+      }}
       disabled={loading || !params.data?.id}
     >
-      {loading ? "…" : "Enrich Lead"}
+      {loading ? "…" : "Enrich"}
     </button>
-  );
-}
-
-function ValidationRenderer(params: ICellRendererParams<WorkspaceLead>) {
-  const errors = params.data?.validation_errors ?? [];
-  if (!errors.length) return <span className="ws-valid-ok">Valid</span>;
-  return (
-    <span className="ws-valid-errors" title={errors.join("\n")}>
-      {errors.length} issue{errors.length > 1 ? "s" : ""}
-    </span>
   );
 }
 
 interface Props {
   onCountChange?: (n: number) => void;
+}
+
+function editableCol(
+  field: keyof WorkspaceLead,
+  headerName: string,
+  extra: Partial<ColDef<WorkspaceLead>> = {}
+): ColDef<WorkspaceLead> {
+  const isText = !extra.cellEditor;
+  return {
+    field,
+    headerName,
+    editable: true,
+    minWidth: 120,
+    cellRenderer: isText ? TextCellRenderer : undefined,
+    cellClassRules: REQUIRED_FIELDS.includes(field as (typeof REQUIRED_FIELDS)[number])
+      ? {
+          "ws-cell-missing": (p) => (p.data ? isFieldMissing(p.data, field) : false),
+        }
+      : undefined,
+    ...extra,
+  };
 }
 
 export default function LeadsAgGrid({ onCountChange }: Props) {
@@ -84,7 +108,12 @@ export default function LeadsAgGrid({ onCountChange }: Props) {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  const [quickFilter, setQuickFilter] = useState("");
+  const [draftVersion, setDraftVersion] = useState(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  const draftRow = useMemo(() => createDraftWorkspaceLead(), [draftVersion]);
+  const gridRows = useMemo(() => [...rowData, draftRow], [rowData, draftRow]);
 
   const loadLeads = useCallback(async () => {
     setLoading(true);
@@ -119,106 +148,73 @@ export default function LeadsAgGrid({ onCountChange }: Props) {
     [onLeadUpdated]
   );
 
-  const missingClassRule = (field: string) => ({
-    "ws-cell-missing": (p: { data?: WorkspaceLead }) =>
-      p.data ? isFieldMissing(p.data, field) : false,
-  });
-
   const columnDefs = useMemo<ColDef<WorkspaceLead>[]>(
     () => [
-      {
-        headerName: "",
-        checkboxSelection: true,
-        headerCheckboxSelection: true,
-        width: 48,
+      editableCol("company_name", "Company", {
+        minWidth: 200,
         pinned: "left",
-        lockPosition: true,
-        suppressMovable: true,
-        sortable: false,
-        filter: false,
-      },
-      {
-        field: "company_name",
-        headerName: "Company",
-        editable: true,
-        minWidth: 180,
-        cellClassRules: missingClassRule("company_name"),
-      },
-      {
-        field: "domain",
-        headerName: "Domain",
-        editable: true,
-        minWidth: 140,
-        cellClassRules: missingClassRule("domain"),
-      },
-      {
-        field: "segment",
-        headerName: "Segment",
-        editable: true,
-        minWidth: 140,
-        cellEditor: "agSelectCellEditor",
-        cellEditorParams: { values: SEGMENT_OPTIONS },
-      },
-      { field: "fleet_brand", headerName: "Fleet Brand", editable: true, minWidth: 130 },
-      { field: "fleet_type", headerName: "Fleet Type", editable: true, minWidth: 130 },
-      {
-        field: "evidence_summary",
-        headerName: "Evidence Summary",
-        editable: true,
-        minWidth: 220,
         flex: 1,
-      },
-      { field: "evidence_url", headerName: "Evidence URL", editable: true, minWidth: 160 },
-      {
-        field: "confidence",
-        headerName: "Confidence",
-        editable: true,
-        width: 120,
+      }),
+      editableCol("domain", "Domain", { minWidth: 150, pinned: "left" }),
+      editableCol("segment", "Segment", {
+        minWidth: 150,
+        cellEditor: "agSelectCellEditor",
+        cellEditorParams: { values: ["", ...SEGMENT_OPTIONS] },
+      }),
+      editableCol("fleet_brand", "Fleet Brand", { minWidth: 140 }),
+      editableCol("fleet_type", "Fleet Type", { minWidth: 140 }),
+      editableCol("evidence_summary", "Evidence Summary", { minWidth: 240, flex: 2 }),
+      editableCol("evidence_url", "Evidence URL", { minWidth: 180 }),
+      editableCol("confidence", "Confidence", {
+        width: 130,
         cellEditor: "agSelectCellEditor",
         cellEditorParams: { values: CONFIDENCE_LEVELS },
-      },
-      {
-        field: "lead_fit",
-        headerName: "Lead Fit",
-        editable: true,
-        width: 110,
+        cellRenderer: ConfidenceCellRenderer,
+      }),
+      editableCol("lead_fit", "Lead Fit", {
+        width: 120,
         cellEditor: "agSelectCellEditor",
         cellEditorParams: { values: LEAD_FIT_LEVELS },
-      },
-      {
-        field: "status",
-        headerName: "Status",
-        editable: true,
-        width: 150,
+        cellRenderer: LeadFitCellRenderer,
+      }),
+      editableCol("status", "Status", {
+        width: 160,
         cellEditor: "agSelectCellEditor",
         cellEditorParams: { values: LEAD_STATUSES },
-        cellClassRules: missingClassRule("status"),
-      },
-      { field: "owner", headerName: "Owner", editable: true, width: 120 },
-      { field: "next_action", headerName: "Next Action", editable: true, minWidth: 140 },
-      { field: "notes", headerName: "Notes", editable: true, minWidth: 160, flex: 1 },
+        cellRenderer: StatusCellRenderer,
+      }),
+      editableCol("owner", "Owner", { width: 120 }),
+      editableCol("next_action", "Next Action", { minWidth: 150 }),
+      editableCol("notes", "Notes", { minWidth: 180, flex: 1 }),
       {
         headerName: "Validation",
-        width: 110,
-        cellRenderer: ValidationRenderer,
+        width: 100,
+        cellRenderer: ValidationCellRenderer,
         sortable: false,
         filter: false,
       },
       {
-        headerName: "Actions",
-        width: 120,
+        headerName: "",
+        width: 88,
         pinned: "right",
         cellRenderer: EnrichButtonRenderer,
         sortable: false,
         filter: false,
+        resizable: false,
+      },
+      {
+        field: "created_at",
+        headerName: "Created",
+        width: 150,
+        editable: false,
+        valueFormatter: (p) => (p.value ? new Date(p.value).toLocaleDateString() : ""),
       },
       {
         field: "updated_at",
         headerName: "Updated",
-        width: 160,
+        width: 150,
         editable: false,
-        valueFormatter: (p) =>
-          p.value ? new Date(p.value).toLocaleString() : "",
+        valueFormatter: (p) => (p.value ? new Date(p.value).toLocaleString() : ""),
       },
     ],
     []
@@ -230,19 +226,56 @@ export default function LeadsAgGrid({ onCountChange }: Props) {
       filter: true,
       resizable: true,
       editable: false,
+      suppressHeaderMenuButton: false,
+      wrapText: false,
+      autoHeight: false,
     }),
     []
   );
 
+  const onGridReady = useCallback((e: GridReadyEvent) => {
+    e.api.setGridOption("popupParent", document.body);
+  }, []);
+
   const onCellValueChanged = async (e: CellValueChangedEvent<WorkspaceLead>) => {
     if (!e.data?.id || e.newValue === e.oldValue) return;
+
+    if (isDraftWorkspaceLead(e.data)) {
+      const field = e.colDef.field as keyof WorkspaceLead | undefined;
+      if (!field) return;
+      if (!String(e.newValue ?? "").trim()) {
+        e.node.setDataValue(field, e.oldValue ?? "");
+        return;
+      }
+
+      setSaving(true);
+      try {
+        const res = await fetchApi("/api/workspace/leads", {
+          method: "POST",
+          body: JSON.stringify({ [field]: e.newValue, status: "New" }),
+        });
+        if (!res.ok) throw new Error("Create failed");
+        const data = await res.json();
+        setRowData((prev) => [data.lead, ...prev]);
+        onCountChange?.(rowData.length + 1);
+        setDraftVersion((v) => v + 1);
+      } catch (err) {
+        console.error(err);
+        setMessage("Could not create lead");
+        e.node.setDataValue(field, "");
+      } finally {
+        setSaving(false);
+      }
+      return;
+    }
+
     setSaving(true);
     try {
       const field = e.colDef.field as keyof WorkspaceLead | undefined;
       if (!field) return;
       const res = await fetchApi("/api/workspace/leads", {
         method: "PATCH",
-        body: JSON.stringify({ id: e.data.id, [field]: e.newValue }),
+        body: JSON.stringify({ id: e.data.id, [field]: e.newValue ?? "" }),
       });
       if (!res.ok) throw new Error("Save failed");
       const data = await res.json();
@@ -266,6 +299,13 @@ export default function LeadsAgGrid({ onCountChange }: Props) {
       const data = await res.json();
       setRowData((prev) => [data.lead, ...prev]);
       onCountChange?.(rowData.length + 1);
+      requestAnimationFrame(() => {
+        const api = gridRef.current?.api;
+        if (!api) return;
+        api.ensureIndexVisible(0, "top");
+        api.setFocusedCell(0, "company_name");
+        api.startEditingCell({ rowIndex: 0, colKey: "company_name" });
+      });
     } catch (e) {
       console.error(e);
       setMessage("Could not add row");
@@ -275,7 +315,10 @@ export default function LeadsAgGrid({ onCountChange }: Props) {
   const deleteSelected = async () => {
     const api = gridRef.current?.api;
     if (!api) return;
-    const ids = api.getSelectedRows().map((r) => r.id);
+    const ids = api
+      .getSelectedRows()
+      .map((r) => r.id)
+      .filter((id) => id !== DRAFT_ROW_ID);
     if (!ids.length) {
       setMessage("Select rows to delete");
       return;
@@ -346,7 +389,7 @@ export default function LeadsAgGrid({ onCountChange }: Props) {
           >
             Import CSV
           </button>
-          <button type="button" className="ws-btn" onClick={exportCsv}>
+          <button type="button" className="ws-btn" onClick={() => void exportCsv()}>
             Export CSV
           </button>
           <input
@@ -362,39 +405,61 @@ export default function LeadsAgGrid({ onCountChange }: Props) {
           />
         </div>
         <div className="ws-toolbar-right">
+          <input
+            type="search"
+            className="ws-quick-filter"
+            placeholder="Filter rows…"
+            value={quickFilter}
+            onChange={(e) => {
+              const v = e.target.value;
+              setQuickFilter(v);
+              gridRef.current?.api?.setGridOption("quickFilterText", v);
+            }}
+          />
           {saving && <span className="ws-status">Saving…</span>}
           {message && (
             <span className="ws-status ws-status-msg" onClick={() => setMessage(null)}>
               {message}
             </span>
           )}
-          <span className="ws-hint">
-            Required: {REQUIRED_FIELDS.map((f) => f.replace(/_/g, " ")).join(", ")}
-          </span>
+          <span className="ws-record-count">{rowData.length} leads</span>
         </div>
       </div>
 
-      <div className="ag-theme-quartz ws-ag-grid" style={{ width: "100%", height: "calc(100vh - 180px)" }}>
+      <div className="ws-ag-grid-host">
         {loading ? (
           <div className="ws-loading">Loading leads…</div>
         ) : (
-          <AgGridReact<WorkspaceLead>
-            ref={gridRef}
-            rowData={rowData}
-            columnDefs={columnDefs}
-            defaultColDef={defaultColDef}
-            context={gridContext}
-            rowSelection="multiple"
-            suppressRowClickSelection
-            enableCellTextSelection
-            ensureDomOrder
-            animateRows
-            onCellValueChanged={onCellValueChanged}
-            getRowId={(p) => p.data.id}
-            rowClassRules={{
-              "ws-row-invalid": (p) => (p.data?.validation_errors?.length ?? 0) > 0,
-            }}
-          />
+          <div className="ag-theme-quartz ws-ag-theme" style={{ width: "100%", height: "100%" }}>
+            <AgGridReact<WorkspaceLead>
+              ref={gridRef}
+              rowData={gridRows}
+              columnDefs={columnDefs}
+              defaultColDef={defaultColDef}
+              context={gridContext}
+              rowSelection={{ mode: "multiRow", checkboxes: true, headerCheckbox: true }}
+              isRowSelectable={(p) => !isDraftWorkspaceLead(p.data)}
+              suppressRowClickSelection
+              singleClickEdit
+              stopEditingWhenCellsLoseFocus
+              enterNavigatesVertically
+              enterNavigatesVerticallyAfterEdit
+              undoRedoCellEditing
+              enableCellTextSelection
+              ensureDomOrder
+              animateRows={false}
+              onGridReady={onGridReady}
+              onCellValueChanged={onCellValueChanged}
+              getRowId={(p) => p.data.id}
+              rowHeight={36}
+              headerHeight={38}
+              rowClassRules={{
+                "ws-row-invalid": (p) =>
+                  !isDraftWorkspaceLead(p.data) && (p.data?.validation_errors?.length ?? 0) > 0,
+                "ws-draft-row": (p) => isDraftWorkspaceLead(p.data),
+              }}
+            />
+          </div>
         )}
       </div>
     </div>

@@ -24,3 +24,6 @@ export const SEGMENT_OPTIONS = [
 
 /** Fields required before a lead can be considered valid */
 export const REQUIRED_FIELDS = ["company_name", "domain", "status"] as const;
+
+/** Sentinel row id — bottom row for click-to-add in AG Grid */
+export const DRAFT_ROW_ID = "__draft__";
