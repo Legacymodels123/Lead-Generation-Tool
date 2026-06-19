@@ -4,11 +4,11 @@ import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import type { Contact, CustomColumn, Lead, LeadStatus } from "@/lib/types";
 import type { AiStatus } from "@/lib/types";
 import { getDmuRoleLabel } from "@/lib/dmu/roles";
-import { GRID_COLUMNS, type GridColumnDef } from "@/lib/grid-columns";
+import type { GridColumnDef } from "@/lib/grid-columns";
 import { isColumnVisibleForLead } from "@/lib/column-conditions";
 import { customColumnGridId, findCustomColumn, mergeGridColumns } from "@/lib/merge-grid-columns";
 import type { CellAddress } from "@/lib/grid-navigation";
-import { colIndexToLetter } from "@/lib/grid-navigation";
+import { columnTypeIcon } from "@/lib/grid-column-icons";
 import type { SortDir, SortField } from "@/lib/views";
 import { FLAGS, scoreColor } from "@/lib/utils";
 import { STATUS_LABELS } from "@/lib/types";
@@ -18,8 +18,8 @@ import { useGridExcel } from "@/hooks/useGridExcel";
 function AiCellContent({ status, value }: { status?: AiStatus; value?: string }) {
   if (status === "running") {
     return (
-      <span className="ai-status ai-running" title="AI running">
-        <span className="ai-spinner" /> ?
+      <span className="ai-status ai-running" title="Processing">
+        <span className="ai-spinner" /> Processing...
       </span>
     );
   }
@@ -31,7 +31,7 @@ function AiCellContent({ status, value }: { status?: AiStatus; value?: string })
       </span>
     );
   }
-  return <span className="ai-empty">?</span>;
+  return <span className="ai-empty">Processing...</span>;
 }
 
 const STATUSES: LeadStatus[] = ["qualified", "not_qualified"];
@@ -69,6 +69,7 @@ interface Props {
   onOpenColumnProperty?: (colId: string) => void;
   scrollToLeadId?: string | null;
   onScrolledToLead?: () => void;
+  recordCount?: number;
 }
 
 function ColumnHeaderMenu({
@@ -86,12 +87,17 @@ function ColumnHeaderMenu({
 }) {
   const [open, setOpen] = useState(false);
   const isSorted = sort?.field === col.id;
-  const sortIndicator = isSorted ? (sort!.dir === "asc" ? " ?" : " ?") : "";
+  const sortIndicator = isSorted ? (sort!.dir === "asc" ? " ^" : " v") : "";
   const isCustom = col.id.startsWith("custom:");
+  const icons = columnTypeIcon(col);
 
   return (
-    <th className={`excel-header-cell ${col.className ?? ""}`}>
-      <div className="col-header">
+    <th className={`smooth-header-cell ${col.className ?? ""}`}>
+      <div className="col-header smooth-col-header">
+        <span className="col-type-icons" aria-hidden>
+          <span className="col-type-glyph">{icons.glyph}</span>
+          {icons.extra && <span className="col-type-extra">{icons.extra}</span>}
+        </span>
         {col.sortable ? (
           <button
             type="button"
@@ -112,13 +118,13 @@ function ColumnHeaderMenu({
               onClick={() => onOpenProperty(col.id)}
               title="Property"
             >
-              ?
+              Cfg
             </button>
           )}
           {col.automatable && (
             <>
-              <button type="button" className="col-run-btn" onClick={() => setOpen(!open)} title="Run">
-                ?
+              <button type="button" className="col-run-btn col-play-btn" onClick={() => setOpen(!open)} title="Run">
+                Run
               </button>
               {open && (
                 <div className="col-run-dropdown">
@@ -162,6 +168,7 @@ export default function LeadsGrid({
   onOpenColumnProperty,
   scrollToLeadId,
   onScrolledToLead,
+  recordCount,
 }: Props) {
   const gridRef = useRef<HTMLDivElement>(null);
   const headerCheckRef = useRef<HTMLInputElement>(null);
@@ -248,7 +255,7 @@ export default function LeadsGrid({
   const cols = visibleColumns
     .map((id) => allGridColumns.find((c) => c.id === id))
     .filter((c): c is GridColumnDef => Boolean(c));
-  const colSpan = 3 + cols.length;
+  const colSpan = 2 + cols.length;
 
   function renderAccountCell(colId: string, lead: Lead) {
     const score = lead.score ?? 0;
@@ -297,7 +304,7 @@ export default function LeadsGrid({
       case "batch":
         return (
           <td key={colId} className="excel-readonly" onClick={() => onSelectRow(lead.id)}>
-            <span className="batch-cell">{lead.batch || "?"}</span>
+            <span className="batch-cell">{lead.batch || "-"}</span>
           </td>
         );
       case "aiSummary":
@@ -315,9 +322,9 @@ export default function LeadsGrid({
         return (
           <td key={colId} className="excel-readonly" onClick={() => onSelectRow(lead.id)}>
             {lead.hubspotCompanyId ? (
-              <span className="hs-badge hs-synced" title="Synced to HubSpot">?</span>
+              <span className="hs-badge hs-synced" title="Synced to HubSpot">OK</span>
             ) : (
-              <span className="hs-badge hs-pending" title="Not synced">?</span>
+              <span className="hs-badge hs-pending" title="Not synced">-</span>
             )}
           </td>
         );
@@ -325,8 +332,8 @@ export default function LeadsGrid({
         return (
           <td key={colId} className="excel-readonly" onClick={(e) => e.stopPropagation()}>
             <div className="actions-cell">
-              <button type="button" className="action-btn" onClick={() => onCopyMessage(lead.id)}>
-                ?
+              <button type="button" className="action-btn" onClick={() => onCopyMessage(lead.id)} title="Copy message">
+                Msg
               </button>
               <button type="button" className="action-btn" onClick={() => onRowAction("hubspot", lead.id)}>
                 HS
@@ -359,48 +366,18 @@ export default function LeadsGrid({
     }
   }
 
-  let visualRow = 0;
-
   return (
-    <div className="excel-sheet">
-      <div className="excel-formula-bar">
-        <span className="excel-name-box">{excel.cellRef || "?"}</span>
-        <span className="excel-fx">fx</span>
-        <input
-          className="excel-formula-input"
-          value={excel.formulaValue}
-          placeholder="Select a cell or start typing?"
-          onChange={(e) => excel.onFormulaChange(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") {
-              e.preventDefault();
-              excel.onFormulaCommit();
-            }
-            if (e.key === "Escape") excel.cancelEdit();
-          }}
-          onBlur={excel.onFormulaCommit}
-        />
-      </div>
-
+    <div className="smooth-sheet">
       <div
         ref={gridRef}
-        className="table-wrap table-wrap-sticky sheet-grid-wrap excel-grid-wrap"
+        className="smooth-grid-wrap"
         tabIndex={0}
         onKeyDown={excel.handleGridKeyDown}
       >
-        <table className="leads-grid excel-grid">
+        <table className="leads-grid smooth-grid">
           <thead>
-            <tr className="excel-letters-row">
-              <th colSpan={3} className="excel-corner" />
-              {cols.map((col, i) => (
-                <th key={col.id} className="excel-col-letter">
-                  {colIndexToLetter(i)}
-                </th>
-              ))}
-            </tr>
             <tr>
-              <th className="excel-row-head">#</th>
-              <th className="grid-check-col">
+              <th className="smooth-check-col">
                 <input
                   ref={headerCheckRef}
                   type="checkbox"
@@ -409,10 +386,10 @@ export default function LeadsGrid({
                   aria-label="Select all"
                 />
               </th>
-              <th className="grid-expand-col" />
+              <th className="smooth-open-col" aria-label="Expand" />
               {cols.map((col) =>
                 col.id === "actions" ? (
-                  <th key={col.id} className="excel-header-cell">
+                  <th key={col.id} className="smooth-header-cell">
                     {col.label}
                   </th>
                 ) : (
@@ -432,13 +409,11 @@ export default function LeadsGrid({
             {leads.length === 0 && (
               <tr>
                 <td colSpan={colSpan} className="grid-empty">
-                  No rows ? press + New row or import CSV
+                  No rows - press + Add row or import CSV
                 </td>
               </tr>
             )}
             {leads.map((lead) => {
-              visualRow += 1;
-              const rowNum = visualRow;
               const contactCount = lead.contacts?.length ?? 0;
               const showEmail = visibleColumns.includes("email");
               const showPhone = visibleColumns.includes("phone");
@@ -450,8 +425,7 @@ export default function LeadsGrid({
                       selectedIds.has(lead.id) ? " checked" : ""
                     }`}
                   >
-                    <td className="excel-row-num">{rowNum}</td>
-                    <td className="grid-check-col" onClick={(e) => e.stopPropagation()}>
+                    <td className="smooth-check-col" onClick={(e) => e.stopPropagation()}>
                       <input
                         type="checkbox"
                         checked={selectedIds.has(lead.id)}
@@ -459,14 +433,15 @@ export default function LeadsGrid({
                         onChange={() => {}}
                       />
                     </td>
-                    <td className="grid-expand-col" onClick={(e) => e.stopPropagation()}>
+                    <td className="smooth-open-col" onClick={(e) => e.stopPropagation()}>
                       {contactCount > 0 && (
                         <button
                           type="button"
-                          className="expand-btn"
+                          className={`row-open-btn${lead.expanded ? " expanded" : ""}`}
                           onClick={() => onToggleExpand(lead.id)}
+                          aria-label={lead.expanded ? "Collapse row" : "Expand row"}
                         >
-                          {lead.expanded ? "?" : "?"}
+                          &gt;
                         </button>
                       )}
                     </td>
@@ -474,12 +449,9 @@ export default function LeadsGrid({
                   </tr>
                   {lead.expanded &&
                     lead.contacts.map((contact) => {
-                      visualRow += 1;
-                      const contactRowNum = visualRow;
                       const rowKey = `${lead.id}:${contact.id}`;
                       return (
                         <tr key={contact.id} className="grid-row contact-row">
-                          <td className="excel-row-num">{contactRowNum}</td>
                           <td />
                           <td />
                           {cols.map((col) => {
@@ -583,9 +555,12 @@ export default function LeadsGrid({
             })}
           </tbody>
         </table>
-        <button type="button" className="grid-add-row" onClick={onAddRow}>
-          + New row
+      </div>
+      <div className="smooth-grid-footer">
+        <button type="button" className="smooth-add-row" onClick={onAddRow}>
+          + Add row
         </button>
+        <span className="smooth-record-count">{recordCount ?? leads.length} records</span>
       </div>
     </div>
   );

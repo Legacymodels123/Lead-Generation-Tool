@@ -81,6 +81,7 @@ export default function CompaniesSpreadsheet() {
   const [minScore, setMinScore] = useState<number | "">("");
   const [batchFilter, setBatchFilter] = useState("");
   const [hasEmailFilter, setHasEmailFilter] = useState(false);
+  const [showFilters, setShowFilters] = useState(false);
 
   const activeView = useMemo(
     () => views.find((v) => v.id === activeViewId) ?? views[0],
@@ -422,101 +423,82 @@ export default function CompaniesSpreadsheet() {
   }
 
   return (
-    <div className="worksheet-shell">
-      <div className="sheet-toolbar">
-        <div className="sheet-toolbar-left">
-          <span className="sheet-title">Companies</span>
-          <span className="sheet-meta">
-            {filtered.length} rows · {stats.qualified} qualified · avg {stats.avgScore}%
-          </span>
-        </div>
-        <div className="sheet-toolbar-right">
-          {user && (
-            <ViewSelector
-              views={views}
-              activeViewId={activeViewId}
-              onSelect={setActiveViewId}
-              onSaveCurrent={handleSaveView}
-              onDelete={handleDeleteView}
-            />
-          )}
-          <ColumnPicker
-            visibleColumns={currentView.visibleColumns}
-            customColumns={customColumns}
-            onChange={handleColumnsChange}
+    <div className="worksheet-shell smooth-worksheet">
+      <div className="smooth-toolbar">
+        <div className="smooth-toolbar-search">
+          <input
+            type="text"
+            placeholder="Search records…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
           />
-          <div className="property-add-dropdown">
-            <button
-              type="button"
-              className="btn-secondary btn-sm"
-              onClick={() => setPropertyMenuOpen(!propertyMenuOpen)}
-            >
-              + Property
-            </button>
-            {propertyMenuOpen && (
-              <div className="property-add-menu">
-                <button type="button" onClick={() => openCreateProperty("text")}>
-                  Single line text
-                </button>
-                <button type="button" onClick={() => openCreateProperty("select")}>
-                  Dropdown
-                </button>
-                <button type="button" onClick={() => openCreateProperty("ai_enriched")}>
-                  AI enriched
-                </button>
-              </div>
-            )}
-          </div>
-          <div className="search-box search-box-compact">
-            <input
-              type="text"
-              placeholder="Search…"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-            />
-          </div>
-          <button
-            className="btn-secondary btn-sm"
-            type="button"
-            onClick={handleExport}
-            disabled={filtered.length === 0}
-          >
-            CSV
-          </button>
-          <div className="workflow-dropdown">
-            <button
-              className="btn-secondary btn-sm"
-              type="button"
-              disabled={runningWorkflow}
-              onClick={() => setWorkflowOpen(!workflowOpen)}
-            >
-              {runningWorkflow ? "…" : "▶ Workflow"}
-            </button>
-            {workflowOpen && (
-              <div className="workflow-menu">
-                {WORKFLOW_PRESETS.map((p) => (
-                  <button key={p.id} type="button" onClick={() => runPreset(p.id)}>
-                    <strong>{p.label}</strong>
-                    <span>{p.description}</span>
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-          <button
-            className="btn-secondary btn-sm"
-            type="button"
-            onClick={() => setShowLinkedInImport(true)}
-          >
-            Import
-          </button>
-          <button className="btn-primary btn-sm" type="button" onClick={() => setShowAddModal(true)}>
-            + Row
-          </button>
         </div>
+        {user && (
+          <ViewSelector
+            views={views}
+            activeViewId={activeViewId}
+            onSelect={setActiveViewId}
+            onSaveCurrent={handleSaveView}
+            onDelete={handleDeleteView}
+          />
+        )}
+        <ColumnPicker
+          visibleColumns={currentView.visibleColumns}
+          customColumns={customColumns}
+          onChange={handleColumnsChange}
+        />
+        <button type="button" className="smooth-toolbar-btn" onClick={() => handleSort("company")}>
+          Sort by
+          {currentView.sort ? ` · ${currentView.sort.field}` : ""}
+        </button>
+        <button
+          type="button"
+          className={`smooth-toolbar-btn${showFilters ? " active" : ""}`}
+          onClick={() => setShowFilters(!showFilters)}
+        >
+          Add filter
+        </button>
+        <div className="smooth-toolbar-spacer" />
+        <div className="property-add-dropdown">
+          <button
+            type="button"
+            className="smooth-toolbar-btn smooth-toolbar-btn-primary"
+            onClick={() => setPropertyMenuOpen(!propertyMenuOpen)}
+          >
+            + Add Column
+          </button>
+          {propertyMenuOpen && (
+            <div className="property-add-menu">
+              <button type="button" onClick={() => openCreateProperty("text")}>
+                Single line text
+              </button>
+              <button type="button" onClick={() => openCreateProperty("select")}>
+                Dropdown
+              </button>
+              <button type="button" onClick={() => openCreateProperty("ai_enriched")}>
+                AI enriched
+              </button>
+            </div>
+          )}
+        </div>
+        <details className="smooth-toolbar-more">
+          <summary className="smooth-toolbar-btn">More</summary>
+          <div className="smooth-toolbar-more-menu">
+            <button type="button" onClick={handleExport} disabled={filtered.length === 0}>
+              Export CSV
+            </button>
+            <button type="button" onClick={() => setShowLinkedInImport(true)}>
+              Import
+            </button>
+            <button type="button" onClick={() => setShowAddModal(true)}>
+              + Row
+            </button>
+          </div>
+        </details>
       </div>
 
-      <div className="sheet-filters">
+      {showFilters && (
+      <div className="sheet-filters smooth-filters">
         {(["alle", "qualified", "not_qualified"] as Filter[]).map((s) => (
           <button
             key={s}
@@ -562,8 +544,9 @@ export default function CompaniesSpreadsheet() {
           />
           Email
         </label>
-        <span className="sheet-hint">Click · type · F2 edit · drag corner · Ctrl+C/V</span>
+        <span className="sheet-hint">Click cell · type · Tab · Shift+click rows</span>
       </div>
+      )}
 
       <div className="sheet-body-row">
         <div className="sheet-body">
@@ -588,11 +571,8 @@ export default function CompaniesSpreadsheet() {
             onOpenColumnProperty={openEditProperty}
             scrollToLeadId={scrollToLeadId}
             onScrolledToLead={clearScrollRequest}
+            recordCount={filtered.length}
           />
-          <div className="grid-footer sheet-footer">
-            {filtered.length} visible · {currentView.name}
-            {selectedIds.size > 0 && ` · ${selectedIds.size} selected`}
-          </div>
         </div>
 
         <ColumnPropertyDrawer

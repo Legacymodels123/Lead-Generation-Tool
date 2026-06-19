@@ -41,8 +41,8 @@ export default function ColumnPicker({
 
   return (
     <div className="column-picker">
-      <button type="button" className="btn-secondary btn-sm" onClick={() => setOpen(!open)}>
-        Kolommen
+      <button type="button" className="smooth-toolbar-btn" onClick={() => setOpen(!open)}>
+        Columns {visibleColumns.length}/{allColumns.length}
       </button>
       {open && (
         <div className="column-picker-popover">
