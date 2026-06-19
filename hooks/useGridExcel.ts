@@ -48,7 +48,7 @@ export function useGridExcel({
   const [selection, setSelection] = useState<CellSelection | null>(null);
   const [fillEndRow, setFillEndRow] = useState<number | null>(null);
   const [editingCell, setEditingCell] = useState<CellAddress | null>(null);
-  const [editDraft, setEditDraft] = useState("");
+  const editSeedRef = useRef("");
 
   const fillDragging = useRef(false);
   const dragSelecting = useRef(false);
@@ -63,32 +63,66 @@ export function useGridExcel({
   fillEndRowRef.current = fillEndRow;
   const editingRef = useRef(editingCell);
   editingRef.current = editingCell;
-  const editDraftRef = useRef(editDraft);
-  editDraftRef.current = editDraft;
 
-  const focus = selection?.focus ?? null;
-  const cellRef = focus ? getExcelRef(navRows, focus) : "";
-
-  const selectCell = useCallback((cell: CellAddress, extend = false) => {
-    setEditingCell((prev) => {
-      if (prev?.rowKey === cell.rowKey && prev?.colId === cell.colId) return prev;
-      return null;
-    });
-    setSelection((prev) => {
-      if (extend && prev) return { anchor: prev.anchor, focus: cell };
-      return { anchor: cell, focus: cell };
-    });
-    requestAnimationFrame(() => {
-      const editing =
-        editingRef.current?.rowKey === cell.rowKey &&
-        editingRef.current?.colId === cell.colId;
-      focusGridCell(gridRef.current, cell, editing);
-    });
+  const readActiveInputValue = useCallback((cell: CellAddress): string => {
+    const container = gridRef.current;
+    if (!container) return editSeedRef.current;
+    const input = container.querySelector(
+      `td[data-row-key="${cell.rowKey}"][data-col-id="${cell.colId}"] input, td[data-row-key="${cell.rowKey}"][data-col-id="${cell.colId}"] select`
+    ) as HTMLInputElement | HTMLSelectElement | null;
+    return input?.value ?? editSeedRef.current;
   }, [gridRef]);
+
+  const commitEdit = useCallback(
+    (value?: string) => {
+      const cell = editingRef.current;
+      if (!cell) return;
+      const finalValue = value ?? readActiveInputValue(cell);
+      setCellValue(
+        leadsRef.current,
+        cell.rowKey,
+        cell.colId,
+        finalValue,
+        writersRef.current,
+        customColumnsRef.current
+      );
+      setEditingCell(null);
+    },
+    [readActiveInputValue]
+  );
+
+  const selectCell = useCallback(
+    (cell: CellAddress, extend = false) => {
+      const prev = editingRef.current;
+      if (
+        prev &&
+        (prev.rowKey !== cell.rowKey || prev.colId !== cell.colId)
+      ) {
+        commitEdit();
+      }
+
+      setSelection((prevSel) => {
+        if (extend && prevSel) return { anchor: prevSel.anchor, focus: cell };
+        return { anchor: cell, focus: cell };
+      });
+
+      if (
+        !prev ||
+        prev.rowKey !== cell.rowKey ||
+        prev.colId !== cell.colId
+      ) {
+        setEditingCell(null);
+      }
+
+      requestAnimationFrame(() => focusGridCell(gridRef.current, cell, false));
+    },
+    [gridRef, commitEdit]
+  );
 
   const moveFocus = useCallback(
     (deltaRow: number, deltaCol: number, extend = false) => {
-      setEditingCell(null);
+      if (editingRef.current) commitEdit();
+
       setSelection((prev) => {
         const current = prev?.focus;
         if (!current) {
@@ -105,8 +139,11 @@ export function useGridExcel({
         return { anchor: next, focus: next };
       });
     },
-    [gridRef]
+    [gridRef, commitEdit]
   );
+
+  const focus = selection?.focus ?? null;
+  const cellRef = focus ? getExcelRef(navRows, focus) : "";
 
   const isEditing = useCallback(
     (cell: CellAddress) =>
@@ -116,21 +153,19 @@ export function useGridExcel({
 
   const startEdit = useCallback(
     (cell: CellAddress, replaceWith?: string) => {
-      const current = getCellValue(leadsRef.current, cell.rowKey, cell.colId, customColumnsRef.current);
+      const current = getCellValue(
+        leadsRef.current,
+        cell.rowKey,
+        cell.colId,
+        customColumnsRef.current
+      );
+      editSeedRef.current = replaceWith !== undefined ? replaceWith : current;
       setEditingCell(cell);
-      setEditDraft(replaceWith !== undefined ? replaceWith : current);
       setSelection({ anchor: cell, focus: cell });
       requestAnimationFrame(() => focusGridCell(gridRef.current, cell, true));
     },
     [gridRef]
   );
-
-  const commitEdit = useCallback(() => {
-    const cell = editingRef.current;
-    if (!cell) return;
-    setCellValue(leadsRef.current, cell.rowKey, cell.colId, editDraftRef.current, writersRef.current, customColumnsRef.current);
-    setEditingCell(null);
-  }, []);
 
   const cancelEdit = useCallback(() => {
     setEditingCell(null);
@@ -354,7 +389,7 @@ export function useGridExcel({
 
   const formulaValue = focus
     ? isEditing(focus)
-      ? editDraft
+      ? readActiveInputValue(focus)
       : getCellValue(leads, focus.rowKey, focus.colId, customColumns)
     : "";
 
@@ -362,17 +397,41 @@ export function useGridExcel({
     (value: string) => {
       if (!focus) return;
       if (!isEditing(focus)) startEdit(focus);
-      setEditDraft(value);
+      editSeedRef.current = value;
+      const input = gridRef.current?.querySelector(
+        `td[data-row-key="${focus.rowKey}"][data-col-id="${focus.colId}"] input`
+      ) as HTMLInputElement | null;
+      if (input) input.value = value;
     },
-    [focus, isEditing, startEdit]
+    [focus, isEditing, startEdit, gridRef]
   );
 
   const onFormulaCommit = useCallback(() => {
     if (editingRef.current) commitEdit();
     else if (focus) {
-      setCellValue(leadsRef.current, focus.rowKey, focus.colId, formulaValue, writersRef.current, customColumnsRef.current);
+      setCellValue(
+        leadsRef.current,
+        focus.rowKey,
+        focus.colId,
+        formulaValue,
+        writersRef.current,
+        customColumnsRef.current
+      );
     }
   }, [focus, formulaValue, commitEdit]);
+
+  const getEditSeed = useCallback(
+    (cell: CellAddress) => {
+      if (
+        editingCell?.rowKey === cell.rowKey &&
+        editingCell?.colId === cell.colId
+      ) {
+        return editSeedRef.current;
+      }
+      return undefined;
+    },
+    [editingCell]
+  );
 
   return {
     navRows,
@@ -384,11 +443,10 @@ export function useGridExcel({
     selectCell,
     cellState,
     isEditing,
-    editDraft,
+    getEditSeed,
     startEdit,
     commitEdit,
     cancelEdit,
-    setEditDraft,
     onFillHandleMouseDown,
     onDragStart,
     onDragEnter,

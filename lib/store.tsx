@@ -126,8 +126,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
           body: JSON.stringify({ leadId: id, ...updates }),
         });
         if (!response.ok) {
-          showToast("Failed to save");
+          const err = await response.json().catch(() => ({}));
+          showToast(err.error ? `Save failed: ${err.error}` : "Failed to save");
           await refetchLeads();
+          return;
         }
       } catch (error) {
         console.error("Failed to update lead:", error);
@@ -149,6 +151,14 @@ export function AppProvider({ children }: { children: ReactNode }) {
       pendingUpdatesRef.current.set(id, {
         ...pendingUpdatesRef.current.get(id),
         ...updates,
+        ...(updates.customValues
+          ? {
+              customValues: {
+                ...pendingUpdatesRef.current.get(id)?.customValues,
+                ...updates.customValues,
+              },
+            }
+          : {}),
       });
 
       const existing = saveTimersRef.current.get(id);

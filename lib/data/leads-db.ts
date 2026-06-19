@@ -9,6 +9,7 @@ export interface LeadRow {
   user_id: string;
   workspace_id: string;
   company: string;
+  city: string;
   country: string;
   market: string;
   employees: number;
@@ -110,6 +111,7 @@ export function leadToRow(lead: Lead, userId: string): LeadRow {
     user_id: userId,
     workspace_id: lead.workspaceId ?? DEFAULT_WORKSPACE_ID,
     company: lead.company,
+    city: lead.city ?? "",
     country: lead.country,
     market: lead.market,
     employees: lead.employees,
@@ -140,6 +142,7 @@ export function rowToLead(row: LeadRow, contacts: Contact[] = []): Lead {
     id: row.id,
     workspaceId: row.workspace_id,
     company: row.company,
+    city: row.city ?? "",
     country: row.country,
     market: row.market,
     employees: row.employees,
@@ -266,23 +269,37 @@ export async function updateLeadInDb(
   leadId: string,
   updates: Partial<Lead>
 ): Promise<Lead | null> {
-  const all = await loadLeadsWithContacts(supabase, userId);
-  const existing = all.find((l) => l.id === leadId);
-  if (!existing) return null;
+  const { data: row, error: fetchError } = await supabase
+    .from("leads")
+    .select("*")
+    .eq("id", leadId)
+    .eq("user_id", userId)
+    .single();
+
+  if (fetchError || !row) return null;
+
+  const { data: contactRows } = await supabase
+    .from("contacts")
+    .select("*")
+    .eq("user_id", userId)
+    .eq("account_id", leadId);
+
+  const contacts = ((contactRows as ContactRow[] | null) ?? []).map(rowToContact);
+  const existing = rowToLead(row as LeadRow, contacts);
 
   const merged = syncPrimaryContactFields(
     normalizeLead({ ...existing, ...updates, id: leadId })
   );
   merged.score = fitScore(merged);
 
-  const row = {
+  const patch = {
     ...leadToRow(merged, userId),
     updated_at: new Date().toISOString(),
   };
 
   const { data, error } = await supabase
     .from("leads")
-    .update(row)
+    .update(patch)
     .eq("id", leadId)
     .eq("user_id", userId)
     .select()

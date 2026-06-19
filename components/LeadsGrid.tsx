@@ -322,7 +322,8 @@ export default function LeadsGrid({
       <ExcelCell
         key={colId}
         cell={cell}
-        value={editing ? excel.editDraft : value}
+        value={value}
+        editSeed={editing ? excel.getEditSeed(cell) : undefined}
         displayValue={opts?.displayValue}
         type={opts?.type}
         options={opts?.options}
@@ -332,8 +333,7 @@ export default function LeadsGrid({
         isEditing={editing}
         onSelect={excel.selectCell}
         onStartEdit={excel.startEdit}
-        onDraftChange={excel.setEditDraft}
-        onCommit={excel.commitEdit}
+        onCommit={(v) => excel.commitEdit(v)}
         onCancel={excel.cancelEdit}
         onInputKeyDown={excel.bindInputKeys}
         onFillHandleMouseDown={excel.onFillHandleMouseDown}

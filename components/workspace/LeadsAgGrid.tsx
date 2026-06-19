@@ -5,7 +5,7 @@ import { AgGridReact } from "ag-grid-react";
 import {
   AllCommunityModule,
   ModuleRegistry,
-  type CellValueChangedEvent,
+  type CellEditingStoppedEvent,
   type ColDef,
   type GridReadyEvent,
   type ICellRendererParams,
@@ -258,14 +258,17 @@ export default function LeadsAgGrid({ onCountChange }: Props) {
     e.api.setGridOption("popupParent", document.body);
   }, []);
 
-  const onCellValueChanged = async (e: CellValueChangedEvent<WorkspaceLead>) => {
-    if (!e.data?.id || e.newValue === e.oldValue) return;
+  const persistCellEdit = async (e: CellEditingStoppedEvent<WorkspaceLead>) => {
+    if (!e.data?.id || e.valueChanged === false) return;
+    const newValue = e.newValue;
+    const oldValue = e.oldValue;
+    if (newValue === oldValue) return;
 
     if (isDraftWorkspaceLead(e.data)) {
       const field = e.colDef.field as keyof WorkspaceLead | undefined;
       if (!field) return;
-      if (!String(e.newValue ?? "").trim()) {
-        e.node.setDataValue(field, e.oldValue ?? "");
+      if (!String(newValue ?? "").trim()) {
+        e.node.setDataValue(field, oldValue ?? "");
         return;
       }
 
@@ -273,7 +276,7 @@ export default function LeadsAgGrid({ onCountChange }: Props) {
       try {
         const res = await fetchApi("/api/workspace/leads", {
           method: "POST",
-          body: JSON.stringify({ [field]: e.newValue, status: "New" }),
+          body: JSON.stringify({ [field]: newValue, status: "New" }),
         });
         if (!res.ok) throw new Error("Create failed");
         const data = await res.json();
@@ -296,7 +299,7 @@ export default function LeadsAgGrid({ onCountChange }: Props) {
       if (!field) return;
       const res = await fetchApi("/api/workspace/leads", {
         method: "PATCH",
-        body: JSON.stringify({ id: e.data.id, [field]: e.newValue ?? "" }),
+        body: JSON.stringify({ id: e.data.id, [field]: newValue ?? "" }),
       });
       if (!res.ok) throw new Error("Save failed");
       const data = await res.json();
@@ -304,7 +307,7 @@ export default function LeadsAgGrid({ onCountChange }: Props) {
     } catch (err) {
       console.error(err);
       setMessage("Failed to save change");
-      e.node.setDataValue(e.colDef.field!, e.oldValue);
+      e.node.setDataValue(e.colDef.field!, oldValue);
     } finally {
       setSaving(false);
     }
@@ -470,7 +473,7 @@ export default function LeadsAgGrid({ onCountChange }: Props) {
               ensureDomOrder
               animateRows={false}
               onGridReady={onGridReady}
-              onCellValueChanged={onCellValueChanged}
+              onCellEditingStopped={persistCellEdit}
               getRowId={(p) => p.data.id}
               rowHeight={36}
               headerHeight={38}

@@ -11,6 +11,7 @@ interface SelectOption {
 interface Props {
   cell: CellAddress;
   value: string;
+  editSeed?: string;
   displayValue?: string;
   type?: "text" | "select";
   options?: SelectOption[];
@@ -22,8 +23,7 @@ interface Props {
   isEditing: boolean;
   onSelect: (cell: CellAddress, extend: boolean) => void;
   onStartEdit: (cell: CellAddress) => void;
-  onDraftChange: (value: string) => void;
-  onCommit: () => void;
+  onCommit: (value: string) => void;
   onCancel: () => void;
   onInputKeyDown: (cell: CellAddress) => (e: KeyboardEvent) => void;
   onFillHandleMouseDown?: (e: MouseEvent) => void;
@@ -35,6 +35,7 @@ interface Props {
 export default function ExcelCell({
   cell,
   value,
+  editSeed,
   displayValue,
   type = "text",
   options,
@@ -46,7 +47,6 @@ export default function ExcelCell({
   isEditing,
   onSelect,
   onStartEdit,
-  onDraftChange,
   onCommit,
   onCancel,
   onInputKeyDown,
@@ -59,15 +59,20 @@ export default function ExcelCell({
   const { rowKey, colId } = cell;
 
   useEffect(() => {
-    if (isEditing && inputRef.current) {
-      inputRef.current.focus();
-      if (inputRef.current instanceof HTMLInputElement) {
-        inputRef.current.select();
-      }
+    if (!isEditing || !inputRef.current) return;
+    inputRef.current.focus();
+    if (inputRef.current instanceof HTMLInputElement) {
+      const len = inputRef.current.value.length;
+      inputRef.current.setSelectionRange(len, len);
     }
   }, [isEditing]);
 
   const shown = displayValue ?? value;
+
+  const commitFromInput = () => {
+    if (!inputRef.current) return;
+    onCommit(inputRef.current.value);
+  };
 
   return (
     <td
@@ -91,22 +96,23 @@ export default function ExcelCell({
         e.stopPropagation();
         onDragStart(cell);
         onSelect(cell, e.shiftKey);
-        if (!isEditing) {
-          onStartEdit(cell);
-        }
+      }}
+      onClick={(e) => {
+        if (e.button !== 0) return;
+        if ((e.target as HTMLElement).closest("input, select, textarea")) return;
+        e.stopPropagation();
+        if (!isEditing) onStartEdit(cell);
       }}
       onMouseEnter={() => onDragEnter(cell)}
     >
       {isEditing ? (
         type === "select" ? (
           <select
+            key={`${rowKey}-${colId}-edit`}
             ref={inputRef as React.RefObject<HTMLSelectElement>}
             className="excel-cell-editor excel-cell-select"
-            value={value}
-            onChange={(e) => {
-              onDraftChange(e.target.value);
-              onCommit();
-            }}
+            defaultValue={editSeed ?? value}
+            onChange={(e) => onCommit(e.target.value)}
             onKeyDown={(e) => {
               if (e.key === "Escape") {
                 e.preventDefault();
@@ -116,7 +122,6 @@ export default function ExcelCell({
             }}
             onMouseDown={(e) => e.stopPropagation()}
             onClick={(e) => e.stopPropagation()}
-            onBlur={onCommit}
           >
             {options?.map((o) => (
               <option key={o.value} value={o.value}>
@@ -126,14 +131,14 @@ export default function ExcelCell({
           </select>
         ) : (
           <input
+            key={`${rowKey}-${colId}-edit`}
             ref={inputRef as React.RefObject<HTMLInputElement>}
             className="excel-cell-editor"
-            value={value}
-            onChange={(e) => onDraftChange(e.target.value)}
+            defaultValue={editSeed ?? value}
             onKeyDown={onInputKeyDown(cell)}
             onMouseDown={(e) => e.stopPropagation()}
             onClick={(e) => e.stopPropagation()}
-            onBlur={onCommit}
+            onBlur={commitFromInput}
           />
         )
       ) : (
