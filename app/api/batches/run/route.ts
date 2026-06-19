@@ -6,7 +6,9 @@ import {
   generateBatchLeads,
   todayBatchDate,
 } from "@/lib/automation/batch-generator";
-import { getAiConfig } from "@/lib/automation/provider";
+import { runWithWorkspaceAi } from "@/lib/automation/ai-context";
+import { getAiConfigAsync } from "@/lib/automation/provider";
+import { DEFAULT_WORKSPACE_ID } from "@/lib/types";
 import {
   batchToRow,
   leadToRow,
@@ -36,7 +38,8 @@ export async function POST(req: NextRequest) {
   const existing = body.existingCompanies ?? [];
   const userName = body.userName ?? "Levi";
 
-  const { apiKey, provider } = getAiConfig();
+  return runWithWorkspaceAi(DEFAULT_WORKSPACE_ID, async () => {
+  const { apiKey, provider } = await getAiConfigAsync();
   const { drafts, source } = await generateBatchLeads(existing, count, userName);
 
   const batchDate = todayBatchDate();
@@ -88,5 +91,6 @@ export async function POST(req: NextRequest) {
     source,
     aiProvider: provider,
     aiPowered: Boolean(apiKey),
+  });
   });
 }

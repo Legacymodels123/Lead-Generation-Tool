@@ -1,5 +1,7 @@
+import { getWorkspaceConfigForApi } from "@/lib/server/workspace-config-api";
 import { callClaude } from "./claude-client";
 import { callOpenAI } from "./openai";
+import { getWorkspaceAiId } from "./ai-context";
 
 export type AiProvider = "openai" | "anthropic";
 
@@ -10,7 +12,7 @@ export interface AiConfig {
   anthropicConfigured: boolean;
 }
 
-export function getAiConfig(): AiConfig {
+function configFromEnv(): AiConfig {
   const openaiConfigured = Boolean(process.env.OPENAI_API_KEY);
   const anthropicConfigured = Boolean(process.env.ANTHROPIC_API_KEY);
 
@@ -38,14 +40,49 @@ export function getAiConfig(): AiConfig {
   };
 }
 
+/** Env-only AI config (sync). Prefer getAiConfigAsync when a workspace id is available. */
+export function getAiConfig(): AiConfig {
+  return configFromEnv();
+}
+
+export async function getAiConfigAsync(workspaceId?: string): Promise<AiConfig> {
+  const wsId = workspaceId ?? getWorkspaceAiId();
+  if (wsId) {
+    const wsConfig = await getWorkspaceConfigForApi(wsId);
+    const openaiKey = wsConfig.apiKeys?.openai?.trim();
+    const anthropicKey = wsConfig.apiKeys?.anthropic?.trim();
+
+    if (openaiKey) {
+      return {
+        provider: "openai",
+        apiKey: openaiKey,
+        openaiConfigured: true,
+        anthropicConfigured: Boolean(anthropicKey || process.env.ANTHROPIC_API_KEY),
+      };
+    }
+    if (anthropicKey) {
+      return {
+        provider: "anthropic",
+        apiKey: anthropicKey,
+        openaiConfigured: Boolean(process.env.OPENAI_API_KEY),
+        anthropicConfigured: true,
+      };
+    }
+  }
+
+  return configFromEnv();
+}
+
 export async function callAi(
   system: string,
   user: string,
   maxTokens = 1024
 ): Promise<string> {
-  const { provider, apiKey } = getAiConfig();
+  const { provider, apiKey } = await getAiConfigAsync();
   if (!provider || !apiKey) {
-    throw new Error("Geen AI provider geconfigureerd");
+    throw new Error(
+      "Geen AI provider geconfigureerd. Voeg een OpenAI- of Anthropic-sleutel toe onder Integrations."
+    );
   }
   if (provider === "openai") {
     return callOpenAI(apiKey, system, user, maxTokens);

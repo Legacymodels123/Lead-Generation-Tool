@@ -1,4 +1,4 @@
-import { callAi, getAiConfig, parseJsonArray } from "./provider";
+import { callAi, getAiConfigAsync, parseJsonArray } from "./provider";
 import { EXPANDED_BATCH_POOL } from "@/lib/seed-data";
 import type { Lead } from "@/lib/types";
 import { DEFAULT_WORKSPACE_ID } from "@/lib/types";
@@ -77,7 +77,7 @@ export async function generateBatchLeads(
   userName: string
 ): Promise<{ drafts: LeadDraft[]; source: BatchSource }> {
   const used = new Set(existingCompanies);
-  const { apiKey } = getAiConfig();
+  const { apiKey } = await getAiConfigAsync();
 
   if (apiKey) {
     try {

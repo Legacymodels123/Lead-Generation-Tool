@@ -69,7 +69,7 @@ export async function getApiKey(
 
   // Fallback to env vars
   if (!key) {
-    if (provider === "openai") key = process.env.ANTHROPIC_API_KEY;
+    if (provider === "openai") key = process.env.OPENAI_API_KEY;
     if (provider === "hubspot") key = process.env.HUBSPOT_ACCESS_TOKEN;
   }
 

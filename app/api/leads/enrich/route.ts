@@ -6,7 +6,8 @@ import {
   updateLeadInDb,
 } from "@/lib/data/leads-db";
 import { buildAccountWaterfall, buildEnrichmentWaterfall } from "@/lib/enrichment/waterfall";
-import { getAiConfig } from "@/lib/automation/provider";
+import { runWithWorkspaceAi } from "@/lib/automation/ai-context";
+import { getAiConfigAsync } from "@/lib/automation/provider";
 import { getLead, updateLead } from "@/lib/server/store";
 import { createAdminClient } from "@/lib/supabase/admin";
 import type { Lead } from "@/lib/types";
@@ -30,7 +31,8 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "leadId required" }, { status: 400 });
     }
 
-    const { apiKey } = getAiConfig();
+    return runWithWorkspaceAi(auth.workspaceId, async () => {
+    const { apiKey } = await getAiConfigAsync();
     const accountWaterfall = buildAccountWaterfall(Boolean(apiKey));
     const contactWaterfall = buildEnrichmentWaterfall(Boolean(apiKey));
 
@@ -121,6 +123,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       lead: updatedLead,
       enrichment: { source: accountWaterfall ? "waterfall" : "none" },
+    });
     });
   } catch (error) {
     console.error("Enrich lead error:", error);

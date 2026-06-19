@@ -1,43 +1,23 @@
-import { createClient } from "@supabase/supabase-js";
 import { callOpenAI } from "@/lib/automation/openai";
+import { getWorkspaceConfigForApi } from "@/lib/server/workspace-config-api";
 
 export const dynamic = "force-dynamic";
 
 export async function POST(request: Request) {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-  if (!supabaseUrl || !supabaseServiceKey) {
-    return Response.json({ error: "Supabase not configured" }, { status: 500 });
-  }
-
-  const supabase = createClient(supabaseUrl, supabaseServiceKey);
-
   try {
-    const body = await request.json() as { workspaceId: string };
+    const body = (await request.json()) as { workspaceId: string };
     const { workspaceId } = body;
 
     if (!workspaceId) {
       return Response.json({ error: "Missing workspaceId" }, { status: 400 });
     }
 
-    // Fetch workspace config
-    const { data: workspace, error } = await supabase
-      .from("workspaces")
-      .select("config")
-      .eq("id", workspaceId)
-      .single();
-
-    if (error) {
-      return Response.json({ error: "Workspace not found" }, { status: 404 });
-    }
-
-    const apiKey = workspace?.config?.apiKeys?.openai;
+    const config = await getWorkspaceConfigForApi(workspaceId);
+    const apiKey = config.apiKeys?.openai;
     if (!apiKey) {
       return Response.json({ error: "OpenAI API key not configured" }, { status: 400 });
     }
 
-    // Test the API key
     const response = await callOpenAI(
       apiKey,
       "You are a helpful assistant.",
@@ -64,7 +44,7 @@ export async function POST(request: Request) {
       {
         success: false,
         error: errorMsg,
-        hint: "Controleer je API key en zorg dat deze actief is op openai.com",
+        hint: "Check your API key is active at platform.openai.com",
       },
       { status: 400 }
     );

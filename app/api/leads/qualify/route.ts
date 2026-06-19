@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAuthFromRequest } from "@/lib/auth-server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { runWithWorkspaceAi } from "@/lib/automation/ai-context";
 import { callAi, parseJsonArray } from "@/lib/automation/provider";
+import { DEFAULT_WORKSPACE_ID } from "@/lib/types";
 import { loadLeadsWithContacts } from "@/lib/data/leads-db";
 
 export const dynamic = "force-dynamic";
@@ -28,6 +30,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "No leads found" }, { status: 404 });
     }
 
+    return runWithWorkspaceAi(DEFAULT_WORKSPACE_ID, async () => {
     const leadsText = leads
       .map(
         (l) =>
@@ -63,6 +66,7 @@ export async function POST(req: NextRequest) {
     }
 
     return NextResponse.json({ results: qualifiedResults });
+    });
   } catch (err) {
     const msg = err instanceof Error ? err.message : "Unknown error";
     console.error("Qualification error:", msg);

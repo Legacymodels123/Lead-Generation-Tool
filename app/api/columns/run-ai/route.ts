@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { generateCustomAiValue } from "@/lib/automation/claude";
-import { getAiConfig } from "@/lib/automation/provider";
+import { runWithWorkspaceAi } from "@/lib/automation/ai-context";
+import { getAiConfigAsync } from "@/lib/automation/provider";
 import { fetchCustomColumns } from "@/lib/db/custom-columns";
 import { shouldRunAiForLead } from "@/lib/column-conditions";
 import { getLead, getLeads, updateLead } from "@/lib/server/store";
@@ -16,9 +17,15 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const { apiKey } = getAiConfig();
+  const workspaceId = user.workspaceId;
+
+  return runWithWorkspaceAi(workspaceId, async () => {
+  const { apiKey } = await getAiConfigAsync();
   if (!apiKey) {
-    return NextResponse.json({ error: "No AI provider configured" }, { status: 503 });
+    return NextResponse.json(
+      { error: "No AI provider configured. Add a key under Integrations." },
+      { status: 503 }
+    );
   }
 
   const body = (await req.json()) as { columnId: string; leadIds: string[] };
@@ -27,7 +34,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Missing columnId or leadIds" }, { status: 400 });
   }
 
-  const columns = await fetchCustomColumns(user.workspaceId);
+  const columns = await fetchCustomColumns(workspaceId);
   const column = columns.find((c) => c.id === columnId);
   if (!column || column.type !== "ai_enriched" || !column.aiPrompt) {
     return NextResponse.json({ error: "Invalid AI column" }, { status: 400 });
@@ -35,7 +42,7 @@ export async function POST(req: NextRequest) {
 
   const updated: string[] = [];
   for (const leadId of leadIds) {
-    const lead = getLead(leadId) ?? getLeads(user.workspaceId).find((l) => l.id === leadId);
+    const lead = getLead(leadId) ?? getLeads(workspaceId).find((l) => l.id === leadId);
     if (!lead) continue;
     if (!shouldRunAiForLead(column, lead)) continue;
 
@@ -51,4 +58,5 @@ export async function POST(req: NextRequest) {
   }
 
   return NextResponse.json({ updated: updated.length, leadIds: updated });
+  });
 }

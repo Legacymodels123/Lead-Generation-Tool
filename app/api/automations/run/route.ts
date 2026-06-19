@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { generateCustomAiColumn } from "@/lib/automation/custom-column";
 import { generateAiColumn } from "@/lib/automation/claude";
-import { getAiConfig } from "@/lib/automation/provider";
+import { runWithWorkspaceAi } from "@/lib/automation/ai-context";
+import { getAiConfigAsync } from "@/lib/automation/provider";
 import { getApiAuth } from "@/lib/api-auth";
 import { isCloudEnabled } from "@/lib/data/is-cloud";
 import {
@@ -27,12 +28,13 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const { apiKey } = getAiConfig();
+  return runWithWorkspaceAi(auth.workspaceId, async () => {
+  const { apiKey } = await getAiConfigAsync();
   if (!apiKey) {
     return NextResponse.json(
       {
         error:
-          "Geen AI provider geconfigureerd. Voeg OPENAI_API_KEY of ANTHROPIC_API_KEY toe in Integrations of .env.local.",
+          "Geen AI provider geconfigureerd. Voeg een OpenAI- of Anthropic-sleutel toe onder Integrations.",
       },
       { status: 503 }
     );
@@ -114,4 +116,5 @@ export async function POST(req: NextRequest) {
   }
 
   return NextResponse.json(updated);
+  });
 }

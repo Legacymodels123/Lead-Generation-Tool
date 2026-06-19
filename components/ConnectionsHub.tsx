@@ -88,7 +88,12 @@ export default function ConnectionsHub({ workspaceId, compact = false }: Props) 
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ workspaceId }),
       });
-      setMessage(res.ok ? `${provider} test OK` : `${provider} test failed`);
+      const data = (await res.json().catch(() => ({}))) as { message?: string; error?: string };
+      setMessage(
+        res.ok
+          ? `${provider} test OK${data.message ? `: ${data.message}` : ""}`
+          : `${provider} test failed: ${data.error ?? res.statusText}`
+      );
     } catch {
       setMessage(`${provider} test error`);
     } finally {
