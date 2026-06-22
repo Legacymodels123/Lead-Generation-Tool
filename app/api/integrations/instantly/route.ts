@@ -1,21 +1,15 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getAuthFromRequest } from "@/lib/auth-server";
-import { addLeadsToInstantlyCampaign, isInstantlyConfigured } from "@/lib/integrations/instantly";
+import { getApiAuth } from "@/lib/api-auth";
+import { addLeadsToInstantlyCampaign } from "@/lib/integrations/instantly";
+import { getIntegrationToken } from "@/lib/integrations/credentials";
 import { loadLeadsWithContacts } from "@/lib/data/leads-db";
 import { createAdminClient } from "@/lib/supabase/admin";
 import type { Lead } from "@/lib/types";
 import { normalizeLead } from "@/lib/utils/contacts";
 
 export async function POST(req: NextRequest) {
-  const auth = await getAuthFromRequest(req);
+  const auth = await getApiAuth(req);
   if (!auth) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-
-  if (!isInstantlyConfigured()) {
-    return NextResponse.json(
-      { error: "INSTANTLY_API_KEY niet geconfigureerd" },
-      { status: 503 }
-    );
-  }
 
   const body = (await req.json()) as {
     leadIds: string[];
@@ -26,6 +20,14 @@ export async function POST(req: NextRequest) {
   const { leadIds, campaignId } = body;
   if (!leadIds?.length || !campaignId) {
     return NextResponse.json({ error: "leadIds en campaignId vereist" }, { status: 400 });
+  }
+
+  const apiKey = await getIntegrationToken(auth.workspaceId, auth.userId, "instantly");
+  if (!apiKey) {
+    return NextResponse.json(
+      { error: "Instantly API key niet geconfigureerd — voeg toe onder Integrations" },
+      { status: 503 }
+    );
   }
 
   const supabase = createAdminClient();
@@ -59,11 +61,14 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Geen contacten met e-mail" }, { status: 400 });
   }
 
-  const apiKey = process.env.INSTANTLY_API_KEY!;
   const result = await addLeadsToInstantlyCampaign(apiKey, campaignId, instantlyLeads);
   return NextResponse.json(result);
 }
 
-export async function GET() {
-  return NextResponse.json({ configured: isInstantlyConfigured() });
+export async function GET(req: NextRequest) {
+  const auth = await getApiAuth(req);
+  const workspaceId = auth?.workspaceId ?? "legacy-scale-models";
+  const userId = auth?.userId ?? "demo-user-001";
+  const apiKey = await getIntegrationToken(workspaceId, userId, "instantly");
+  return NextResponse.json({ configured: Boolean(apiKey) });
 }

@@ -47,5 +47,5 @@ export async function addLeadsToInstantlyCampaign(
 }
 
 export function isInstantlyConfigured(): boolean {
-  return Boolean(process.env.INSTANTLY_API_KEY);
+  return Boolean(process.env.INSTANTLY_API_KEY?.trim());
 }

@@ -145,7 +145,7 @@ export default function ConnectionsHub({
   compact = false,
   focusProvider = null,
 }: Props) {
-  const { token } = useAuth();
+  const { token, user } = useAuth();
   const [config, setConfig] = useState<WorkspaceConfig>({});
   const [draftKeys, setDraftKeys] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
@@ -179,6 +179,11 @@ export default function ConnectionsHub({
   async function saveKey(provider: ApiProviderId) {
     const value = draftKeys[provider]?.trim();
     if (!value) return;
+    if (!token) {
+      setMessage("Log eerst in om API keys op te slaan.");
+      setMessageOk(false);
+      return;
+    }
     setSaving(provider);
     setMessage("");
     setMessageOk(false);
@@ -225,7 +230,10 @@ export default function ConnectionsHub({
       const route = `/api/integrations/test/${provider}`;
       const res = await fetch(route, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
         body: JSON.stringify({ workspaceId }),
       });
       const data = (await res.json().catch(() => ({}))) as { message?: string; error?: string };
@@ -243,7 +251,8 @@ export default function ConnectionsHub({
 
   function connectOAuth(provider: "linkedin" | "hubspot") {
     const oauthProvider = provider === "hubspot" ? "hubspot_oauth" : "linkedin";
-    window.location.href = `/api/oauth/authorize?provider=${oauthProvider}&workspace_id=${encodeURIComponent(workspaceId)}&redirect_to=${encodeURIComponent("/integrations")}`;
+    const userParam = user?.id ? `&user_id=${encodeURIComponent(user.id)}` : "";
+    window.location.href = `/api/oauth/authorize?provider=${oauthProvider}&workspace_id=${encodeURIComponent(workspaceId)}&redirect_to=${encodeURIComponent("/integrations")}${userParam}`;
   }
 
   if (loading) return <p className="connections-loading">Loading connections…</p>;
@@ -296,7 +305,7 @@ export default function ConnectionsHub({
         {ENRICHMENT_INTEGRATIONS.map(renderCard)}
       </IntegrationSection>
 
-      <section className="integration-section integration-section-mcp">
+      <section id="mcp" className="integration-section integration-section-mcp">
         <div className="integration-section-head">
           <span className="integration-section-step">{INTEGRATION_SECTIONS.mcp.step}</span>
           <div>

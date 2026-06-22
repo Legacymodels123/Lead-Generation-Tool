@@ -1,13 +1,18 @@
 import { NextRequest, NextResponse } from "next/server";
 export const dynamic = "force-dynamic";
-import { createClient } from "@supabase/supabase-js";
 import type { OAuthToken } from "@/lib/oauth/types";
-
-
+import {
+  ensureWorkspaceRow,
+  getWorkspaceConfigForApi,
+  saveWorkspaceConfigForApi,
+} from "@/lib/server/workspace-config-api";
+import { saveIntegrationConnection } from "@/lib/integrations/credentials";
+import type { IntegrationProvider } from "@/lib/types";
 
 interface StatePayload {
   provider: string;
   workspaceId: string;
+  userId?: string;
   redirectTo?: string;
   timestamp: number;
 }
@@ -91,21 +96,16 @@ async function exchangeCodeForToken(
 }
 
 export async function GET(request: NextRequest) {
-  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-  if (!supabaseUrl || !supabaseServiceKey) {
+  if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
     return NextResponse.redirect(new URL("/integrations?error=supabase_not_configured", request.url));
   }
 
-  const supabase = createClient(supabaseUrl, supabaseServiceKey);
   const searchParams = request.nextUrl.searchParams;
   const code = searchParams.get("code");
   const state = searchParams.get("state");
   const error = searchParams.get("error");
   const errorDescription = searchParams.get("error_description");
 
-  // Handle OAuth errors
   if (error) {
     const returnUrl = new URL("/integrations?error=oauth_failed", request.url);
     returnUrl.searchParams.set("error_detail", errorDescription || error);
@@ -121,15 +121,13 @@ export async function GET(request: NextRequest) {
     return NextResponse.redirect(new URL("/integrations?error=invalid_state", request.url));
   }
 
-  // Verify state is recent (within 10 minutes)
   if (Date.now() - stateData.timestamp > 10 * 60 * 1000) {
     return NextResponse.redirect(new URL("/integrations?error=state_expired", request.url));
   }
 
-  const { provider, workspaceId, redirectTo } = stateData;
+  const { provider, workspaceId, redirectTo, userId } = stateData;
   const redirectUri = `${process.env.NEXTAUTH_URL || "http://localhost:3000"}/api/oauth/callback`;
 
-  // Exchange code for token
   const token = await exchangeCodeForToken(provider, code, redirectUri);
   if (!token) {
     return NextResponse.redirect(
@@ -137,58 +135,48 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  // Save token to workspace config
-  const { data: workspace, error: fetchError } = await supabase
-    .from("workspaces")
-    .select("config")
-    .eq("id", workspaceId)
-    .single();
+  try {
+    await ensureWorkspaceRow(workspaceId);
+    const currentConfig = await getWorkspaceConfigForApi(workspaceId);
+    const providerKey = provider === "hubspot_oauth" ? "hubspot" : provider;
 
-  if (fetchError) {
-    return NextResponse.redirect(
-      new URL("/integrations?error=workspace_not_found", request.url)
-    );
-  }
-
-  const currentConfig = workspace?.config || {};
-  const providerKey = provider === "hubspot_oauth" ? "hubspot" : provider;
-  const updatedConfig = {
-    ...currentConfig,
-    apiKeys: {
-      ...(currentConfig.apiKeys || {}),
-      ...(providerKey === "hubspot" || providerKey === "linkedin"
-        ? { [providerKey]: token.accessToken }
-        : {}),
-    },
-    oauth: {
-      ...(currentConfig.oauth || {}),
-      [provider]: {
-        accessToken: token.accessToken,
-        refreshToken: token.refreshToken,
-        expiresAt: token.expiresAt,
-        scope: token.scope,
-        tokenType: token.tokenType,
-        connectedAt: new Date().toISOString(),
+    await saveWorkspaceConfigForApi(workspaceId, {
+      apiKeys:
+        providerKey === "hubspot" || providerKey === "linkedin"
+          ? {
+              ...(currentConfig.apiKeys ?? {}),
+              [providerKey]: token.accessToken,
+            }
+          : currentConfig.apiKeys,
+      oauth: {
+        ...(currentConfig.oauth as object),
+        [provider]: {
+          accessToken: token.accessToken,
+          refreshToken: token.refreshToken,
+          expiresAt: token.expiresAt,
+          scope: token.scope,
+          tokenType: token.tokenType,
+          connectedAt: new Date().toISOString(),
+        },
       },
-    },
-  };
+    });
 
-  const { error: updateError } = await supabase
-    .from("workspaces")
-    .update({ config: updatedConfig })
-    .eq("id", workspaceId);
-
-  if (updateError) {
+    if (userId && (providerKey === "hubspot" || providerKey === "linkedin")) {
+      await saveIntegrationConnection(
+        workspaceId,
+        userId,
+        providerKey as IntegrationProvider,
+        token.accessToken
+      );
+    }
+  } catch (err) {
+    console.error("OAuth config save failed:", err);
     return NextResponse.redirect(
       new URL("/integrations?error=config_save_failed", request.url)
     );
   }
 
-  // Redirect back to integrations with success message
-  const returnUrl = new URL(
-    redirectTo || "/integrations",
-    request.url
-  );
+  const returnUrl = new URL(redirectTo || "/integrations", request.url);
   returnUrl.searchParams.set("oauth_success", provider);
   return NextResponse.redirect(returnUrl);
 }

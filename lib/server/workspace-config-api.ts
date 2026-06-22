@@ -21,7 +21,7 @@ async function getSupabaseAdmin() {
 }
 
 /** Ensure workspace row exists so config updates do not silently no-op */
-async function ensureWorkspaceRow(workspaceId: string): Promise<void> {
+export async function ensureWorkspaceRow(workspaceId: string): Promise<void> {
   const supabase = await getSupabaseAdmin();
   const { error } = await supabase.from("workspaces").upsert(
     {

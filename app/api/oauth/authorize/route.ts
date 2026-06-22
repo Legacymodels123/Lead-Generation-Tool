@@ -27,10 +27,13 @@ export async function GET(request: NextRequest) {
     );
   }
 
+  const userId = searchParams.get("user_id") ?? undefined;
+
   const state = Buffer.from(
     JSON.stringify({
       provider,
       workspaceId,
+      userId,
       redirectTo,
       timestamp: Date.now(),
     })

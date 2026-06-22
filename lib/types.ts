@@ -16,7 +16,8 @@ export type IntegrationProvider =
   | "anthropic"
   | "hunter"
   | "apollo"
-  | "firecrawl";
+  | "firecrawl"
+  | "instantly";
 
 export type IntegrationStatus = "connected" | "pending" | "expired" | "error";
 

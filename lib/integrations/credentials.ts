@@ -17,6 +17,7 @@ const ENV_MAP: Partial<Record<IntegrationProvider, string>> = {
   hunter: "HUNTER_API_KEY",
   apollo: "APOLLO_API_KEY",
   firecrawl: "FIRECRAWL_API_KEY",
+  instantly: "INSTANTLY_API_KEY",
 };
 
 const WORKSPACE_KEY_PROVIDERS = new Set<string>([
@@ -57,6 +58,14 @@ export async function getIntegrationToken(
   userId: string,
   provider: IntegrationProvider
 ): Promise<string | null> {
+  if (WORKSPACE_KEY_PROVIDERS.has(provider)) {
+    const fromWorkspace = await tokenFromWorkspaceConfig(workspaceId, provider);
+    if (fromWorkspace) return fromWorkspace;
+  }
+
+  const mem = getConnectionMemory(workspaceId, userId, provider);
+  if (mem?.accessToken) return mem.accessToken;
+
   if (isCloudEnabled()) {
     const supabase = createAdminClient();
     if (supabase) {
@@ -71,14 +80,6 @@ export async function getIntegrationToken(
 
       if (data?.access_token) return data.access_token as string;
     }
-  }
-
-  const mem = getConnectionMemory(workspaceId, userId, provider);
-  if (mem?.accessToken) return mem.accessToken;
-
-  if (WORKSPACE_KEY_PROVIDERS.has(provider)) {
-    const fromWorkspace = await tokenFromWorkspaceConfig(workspaceId, provider);
-    if (fromWorkspace) return fromWorkspace;
   }
 
   const envKey = ENV_MAP[provider];
@@ -137,7 +138,7 @@ export async function syncWorkspaceKeysToConnections(
   userId: string,
   apiKeys: NonNullable<Awaited<ReturnType<typeof getWorkspaceConfigForApi>>["apiKeys"]>
 ): Promise<void> {
-  const providers = ["hubspot", "hunter", "apollo", "linkedin"] as const;
+  const providers = ["hubspot", "hunter", "apollo", "linkedin", "instantly"] as const;
   for (const provider of providers) {
     const token = apiKeys[provider as keyof typeof apiKeys];
     if (typeof token === "string" && token.trim() && !isMaskedSecret(token)) {
@@ -158,7 +159,7 @@ export async function saveIntegrationConnection(
     const supabase = createAdminClient();
     if (supabase) {
       const now = new Date().toISOString();
-      await supabase.from("integration_connections").upsert(
+      const { error } = await supabase.from("integration_connections").upsert(
         {
           workspace_id: workspaceId,
           user_id: userId,
@@ -169,6 +170,9 @@ export async function saveIntegrationConnection(
         },
         { onConflict: "workspace_id,user_id,provider" }
       );
+      if (error) {
+        console.warn(`integration_connections upsert (${provider}):`, error.message);
+      }
     }
   }
 }
