@@ -1,7 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { McpConnection, WorkspaceConfig } from "@/lib/types";
+import type { WorkspaceConfig } from "@/lib/types";
+import McpToolCatalog from "@/components/McpToolCatalog";
 
 const FEATURED = [
   { id: "openai", label: "ChatGPT", brand: "integration-openai", glyph: "◆" },
@@ -35,12 +36,6 @@ export default function ConnectionsHub({
   const [draftKeys, setDraftKeys] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState<string | null>(null);
-  const [mcpDraft, setMcpDraft] = useState<Partial<McpConnection>>({
-    name: "",
-    url: "",
-    authType: "none",
-    enabled: true,
-  });
   const [message, setMessage] = useState("");
   const focusRef = useRef<HTMLDivElement>(null);
 
@@ -114,53 +109,6 @@ export default function ConnectionsHub({
   function connectOAuth(provider: "linkedin" | "hubspot") {
     const oauthProvider = provider === "hubspot" ? "hubspot_oauth" : "linkedin";
     window.location.href = `/api/oauth/authorize?provider=${oauthProvider}&workspace_id=${encodeURIComponent(workspaceId)}&redirect_to=${encodeURIComponent("/integrations")}`;
-  }
-
-  async function addMcpServer() {
-    if (!mcpDraft.name?.trim() || !mcpDraft.url?.trim()) return;
-    const server: McpConnection = {
-      id: `mcp-${Date.now()}`,
-      name: mcpDraft.name.trim(),
-      url: mcpDraft.url.trim(),
-      authType: mcpDraft.authType ?? "none",
-      token: mcpDraft.token,
-      enabled: mcpDraft.enabled ?? true,
-    };
-    setSaving("mcp");
-    try {
-      const res = await fetch("/api/integrations/mcp/test", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ workspaceId, server, testUrl: server.url }),
-      });
-      const test = await res.json();
-      server.lastStatus = test.ok ? "ok" : "error";
-      server.lastCheckedAt = new Date().toISOString();
-
-      const list = [...(config.mcpServers ?? []), server];
-      await fetch(`/api/workspaces/${workspaceId}/config`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ mcpServers: list }),
-      });
-      setMcpDraft({ name: "", url: "", authType: "none", enabled: true, token: "" });
-      await load();
-      setMessage(test.ok ? "MCP server added" : "MCP saved (endpoint test failed)");
-    } catch {
-      setMessage("Failed to add MCP server");
-    } finally {
-      setSaving(null);
-    }
-  }
-
-  async function removeMcp(id: string) {
-    const list = (config.mcpServers ?? []).filter((s) => s.id !== id);
-    await fetch(`/api/workspaces/${workspaceId}/config`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ mcpServers: list }),
-    });
-    await load();
   }
 
   if (loading) return <p className="connections-loading">Loading connections…</p>;
@@ -270,46 +218,11 @@ export default function ConnectionsHub({
         })}
       </div>
 
-      <h2 className="connections-title connections-title-mcp">MCP servers</h2>
-      <p className="connections-sub">Register MCP endpoints for future AI column tooling.</p>
-
-      {(config.mcpServers ?? []).map((server) => (
-        <div key={server.id} className="connection-card mcp-card">
-          <div className="connection-card-head">
-            <strong>{server.name}</strong>
-            <span className={`connection-status${server.lastStatus === "ok" ? " on" : ""}`}>
-              {server.lastStatus ?? "unknown"}
-            </span>
-          </div>
-          <div className="mcp-url">{server.url}</div>
-          <button type="button" className="btn-secondary btn-sm" onClick={() => void removeMcp(server.id)}>
-            Remove
-          </button>
-        </div>
-      ))}
-
-      <div className="connection-card mcp-form">
-        <input
-          className="settings-input"
-          placeholder="Server name"
-          value={mcpDraft.name ?? ""}
-          onChange={(e) => setMcpDraft((d) => ({ ...d, name: e.target.value }))}
-        />
-        <input
-          className="settings-input"
-          placeholder="MCP URL"
-          value={mcpDraft.url ?? ""}
-          onChange={(e) => setMcpDraft((d) => ({ ...d, url: e.target.value }))}
-        />
-        <button
-          type="button"
-          className="btn-primary btn-sm"
-          disabled={saving === "mcp"}
-          onClick={() => void addMcpServer()}
-        >
-          {saving === "mcp" ? "…" : "Add MCP server"}
-        </button>
-      </div>
+      <McpToolCatalog
+        workspaceId={workspaceId}
+        servers={config.mcpServers ?? []}
+        onChange={() => void load()}
+      />
 
       {message && <p className="connections-message">{message}</p>}
     </div>

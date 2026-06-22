@@ -47,6 +47,13 @@ export interface McpConnection {
   enabled: boolean;
   lastStatus?: "ok" | "error" | "unknown";
   lastCheckedAt?: string;
+  /** Preset from lib/mcp/catalog */
+  catalogId?: string;
+  category?: string;
+  description?: string;
+  /** Tool names discovered via MCP tools/list */
+  tools?: string[];
+  toolCount?: number;
 }
 
 export type ColumnAutomationKind = "ai" | "enrich" | "research" | "score" | "hubspot";

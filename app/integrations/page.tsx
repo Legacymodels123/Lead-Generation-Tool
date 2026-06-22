@@ -19,7 +19,7 @@ export default function IntegrationsPage() {
     <div className="integrations-page">
       <div className="integrations-page-head">
         <h1>Connections</h1>
-        <p>Link AI providers and CRM tools to power your lead workspace.</p>
+        <p>API keys for AI & CRM, plus MCP servers for agent tooling.</p>
       </div>
       <IntegrationConnectStrip workspaceId={workspaceId} />
       <ConnectionsHub workspaceId={workspaceId} focusProvider={focus} />
