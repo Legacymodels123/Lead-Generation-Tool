@@ -182,6 +182,7 @@ export interface WorkspaceConfig {
     openai?: string;
     anthropic?: string;
     hubspot?: string;
+    linkedin?: string;
     hunter?: string;
     apollo?: string;
     instantly?: string;

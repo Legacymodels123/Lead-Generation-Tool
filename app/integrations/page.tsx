@@ -3,7 +3,6 @@
 import { useSearchParams } from "next/navigation";
 import { useAuth } from "@/lib/auth";
 import ConnectionsHub from "@/components/ConnectionsHub";
-import IntegrationConnectStrip from "@/components/IntegrationConnectStrip";
 
 export default function IntegrationsPage() {
   const { user, loading } = useAuth();
@@ -17,11 +16,13 @@ export default function IntegrationsPage() {
 
   return (
     <div className="integrations-page">
-      <div className="integrations-page-head">
-        <h1>Connections</h1>
-        <p>API keys for AI & CRM, plus MCP servers for agent tooling.</p>
-      </div>
-      <IntegrationConnectStrip workspaceId={workspaceId} />
+      <header className="integrations-page-head">
+        <h1>Integrations</h1>
+        <p>
+          Connect your workspace in four steps: AI for smart columns, CRM for sync, enrichment APIs
+          for data, and MCP for agent actions.
+        </p>
+      </header>
       <ConnectionsHub workspaceId={workspaceId} focusProvider={focus} />
     </div>
   );

@@ -1907,14 +1907,300 @@ body.grid-filling {
 
 .integrations-page,
 .settings-connections {
-  padding: 20px;
+  padding: 24px 28px;
   overflow-y: auto;
   height: 100%;
-  background: #fff;
+  background: #f8fafc;
+  max-width: 1100px;
 }
-.integrations-page-head h1 { font-size: 20px; font-weight: 700; margin-bottom: 4px; }
-.integrations-page-head p { font-size: 13px; color: #666; margin-bottom: 20px; }
+.integrations-page-head {
+  margin-bottom: 28px;
+}
+.integrations-page-head h1 {
+  font-size: 24px;
+  font-weight: 700;
+  margin-bottom: 8px;
+  color: #111827;
+}
+.integrations-page-head p {
+  font-size: 14px;
+  color: #6b7280;
+  line-height: 1.5;
+  max-width: 640px;
+}
 .page-loading { padding: 20px; color: #888; }
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  border: 0;
+}
+
+/* Integrations overview */
+.integrations-overview {
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 14px;
+  padding: 20px;
+  margin-bottom: 28px;
+}
+.integrations-overview-intro h2 {
+  font-size: 14px;
+  font-weight: 600;
+  margin-bottom: 12px;
+  color: #374151;
+}
+.integrations-overview-legend {
+  list-style: none;
+  padding: 0;
+  margin: 0 0 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.integrations-overview-legend li {
+  font-size: 13px;
+  color: #6b7280;
+  line-height: 1.45;
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+.integration-method-badge {
+  flex-shrink: 0;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  padding: 3px 8px;
+  border-radius: 6px;
+  background: #eef2ff;
+  color: #4338ca;
+}
+.integration-method-badge.oauth {
+  background: #f0fdf4;
+  color: #15803d;
+}
+.integration-method-badge.mcp {
+  background: #faf5ff;
+  color: #7c3aed;
+}
+.integrations-overview-stats {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 12px;
+}
+@media (max-width: 720px) {
+  .integrations-overview-stats { grid-template-columns: 1fr; }
+}
+.integrations-stat-card {
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  padding: 14px;
+  background: #fafbfc;
+  text-align: left;
+  cursor: pointer;
+  font-family: inherit;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+}
+.integrations-stat-card:hover {
+  border-color: #6366f1;
+  box-shadow: 0 4px 12px rgba(99, 102, 241, 0.1);
+}
+.integrations-stat-label {
+  display: block;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #9ca3af;
+  margin-bottom: 4px;
+}
+.integrations-stat-value {
+  display: block;
+  font-size: 22px;
+  font-weight: 700;
+  color: #111827;
+}
+.integrations-stat-hint {
+  display: block;
+  font-size: 11px;
+  color: #6b7280;
+  margin-top: 4px;
+}
+
+/* Integration sections */
+.integration-section {
+  margin-bottom: 32px;
+  scroll-margin-top: 16px;
+}
+.integration-section-head {
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
+  margin-bottom: 16px;
+}
+.integration-section-step {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: #111827;
+  color: #fff;
+  font-size: 13px;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.integration-section-title {
+  font-size: 17px;
+  font-weight: 700;
+  color: #111827;
+  margin-bottom: 4px;
+}
+.integration-section-desc {
+  font-size: 13px;
+  color: #6b7280;
+  line-height: 1.5;
+  max-width: 720px;
+}
+.integration-section-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 14px;
+}
+.integration-section-mcp .mcp-catalog-section {
+  margin-top: 0;
+  padding-top: 0;
+  border-top: none;
+}
+
+.integration-setup-card {
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 12px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.integration-setup-card.connected {
+  border-color: #86efac;
+  background: linear-gradient(180deg, #fff 0%, #f0fdf4 100%);
+}
+.integration-setup-card.focused {
+  box-shadow: 0 0 0 2px #6366f1;
+}
+.integration-setup-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+.integration-setup-titles {
+  flex: 1;
+  min-width: 0;
+}
+.integration-setup-titles strong {
+  display: block;
+  font-size: 15px;
+  color: #111827;
+}
+.integration-setup-purpose {
+  display: block;
+  font-size: 12px;
+  color: #6b7280;
+  margin-top: 2px;
+}
+.integration-used-for {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.integration-used-for li {
+  font-size: 11px;
+  padding: 3px 8px;
+  border-radius: 6px;
+  background: #f3f4f6;
+  color: #4b5563;
+}
+.integration-setup-status {
+  font-size: 12px;
+  font-weight: 500;
+  color: #9ca3af;
+}
+.integration-setup-status.on {
+  color: #16a34a;
+}
+.integration-setup-oauth {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.integration-setup-or {
+  font-size: 11px;
+  color: #9ca3af;
+  text-align: center;
+}
+.integration-setup-field {
+  display: block;
+}
+
+.connections-hub { max-width: 100%; }
+.connections-message.ok { color: #16a34a; }
+
+/* Toolbar status pills */
+.integration-status-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid #e5e7eb;
+  border-radius: 999px;
+  padding: 4px 10px;
+  background: #fff;
+  font-size: 11px;
+  font-weight: 600;
+  color: #6b7280;
+  cursor: pointer;
+  font-family: inherit;
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+.integration-status-pill:hover {
+  border-color: #cbd5e1;
+  background: #f9fafb;
+}
+.integration-status-pill.ready {
+  border-color: #bbf7d0;
+  background: #f0fdf4;
+  color: #166534;
+}
+.integration-status-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #d1d5db;
+}
+.integration-status-pill.ready .integration-status-dot {
+  background: #22c55e;
+}
+.integration-manage-link {
+  border: none;
+  background: transparent;
+  color: #6366f1;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: inherit;
+  padding: 4px 8px;
+}
 
 .connections-hub { max-width: 900px; }
 .connections-title { font-size: 15px; font-weight: 600; margin: 16px 0 6px; }
@@ -2595,9 +2881,9 @@ body.grid-filling {
 
 /* MCP tool catalog */
 .mcp-catalog-section {
-  margin-top: 32px;
-  padding-top: 24px;
-  border-top: 1px solid #e5e7eb;
+  margin-top: 0;
+  padding-top: 0;
+  border-top: none;
 }
 .mcp-catalog-head { margin-bottom: 20px; }
 .mcp-catalog-group { margin-bottom: 24px; }

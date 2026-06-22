@@ -1,30 +1,140 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import type { WorkspaceConfig } from "@/lib/types";
+import {
+  CORE_INTEGRATIONS,
+  ENRICHMENT_INTEGRATIONS,
+  INTEGRATION_SECTIONS,
+  methodLabel,
+  type IntegrationDef,
+} from "@/lib/integrations/catalog";
+import IntegrationsOverview from "@/components/IntegrationsOverview";
 import McpToolCatalog from "@/components/McpToolCatalog";
 
-const FEATURED = [
-  { id: "openai", label: "ChatGPT", brand: "integration-openai", glyph: "◆" },
-  { id: "anthropic", label: "Claude", brand: "integration-anthropic", glyph: "✦" },
-  { id: "hubspot", label: "HubSpot", brand: "integration-hubspot", glyph: "⬡" },
-  { id: "linkedin", label: "LinkedIn", brand: "integration-linkedin", glyph: "in" },
-] as const;
-
-const OTHER_PROVIDERS = [
-  { id: "hunter", label: "Hunter" },
-  { id: "apollo", label: "Apollo" },
-  { id: "instantly", label: "Instantly" },
-] as const;
-
-type ApiProviderId =
-  | (typeof FEATURED)[number]["id"]
-  | (typeof OTHER_PROVIDERS)[number]["id"];
+type ApiProviderId = string;
 
 interface Props {
   workspaceId: string;
   compact?: boolean;
   focusProvider?: string | null;
+}
+
+function isConnected(config: WorkspaceConfig, id: string): boolean {
+  const keys = config.apiKeys ?? {};
+  return Boolean(keys[id as keyof typeof keys]);
+}
+
+function IntegrationCard({
+  integration,
+  connected,
+  highlighted,
+  draftKey,
+  onDraftChange,
+  saving,
+  onSave,
+  onTest,
+  onOAuth,
+}: {
+  integration: IntegrationDef;
+  connected: boolean;
+  highlighted: boolean;
+  draftKey: string;
+  onDraftChange: (v: string) => void;
+  saving: boolean;
+  onSave: () => void;
+  onTest?: () => void;
+  onOAuth?: () => void;
+}) {
+  const showOAuth = integration.method === "api_key_or_oauth" && onOAuth;
+  const showTest = integration.section === "ai" && onTest;
+
+  return (
+    <article
+      id={`connection-${integration.id}`}
+      className={`integration-setup-card ${integration.brand}${connected ? " connected" : ""}${highlighted ? " focused" : ""}`}
+    >
+      <header className="integration-setup-head">
+        <span className="connection-feature-glyph">{integration.glyph}</span>
+        <div className="integration-setup-titles">
+          <strong>{integration.label}</strong>
+          <span className="integration-setup-purpose">{integration.purpose}</span>
+        </div>
+        <span className={`integration-method-badge${integration.method.includes("oauth") ? " oauth" : ""}`}>
+          {methodLabel(integration.method)}
+        </span>
+      </header>
+
+      <ul className="integration-used-for">
+        {integration.usedFor.map((item) => (
+          <li key={item}>{item}</li>
+        ))}
+      </ul>
+
+      <div className={`integration-setup-status${connected ? " on" : ""}`}>
+        {connected ? "✓ Connected" : "Not connected yet"}
+      </div>
+
+      {showOAuth && (
+        <div className="integration-setup-oauth">
+          <button type="button" className="btn-primary btn-sm" onClick={onOAuth}>
+            {connected ? "Reconnect with OAuth" : "Connect with OAuth"}
+          </button>
+          <span className="integration-setup-or">or paste a token</span>
+        </div>
+      )}
+
+      <label className="integration-setup-field">
+        <span className="sr-only">{integration.label} API key</span>
+        <input
+          className="settings-input"
+          type="password"
+          placeholder={
+            integration.method === "api_key_or_oauth"
+              ? `Paste ${integration.label} access token`
+              : `Paste ${integration.label} API key`
+          }
+          value={draftKey}
+          onChange={(e) => onDraftChange(e.target.value)}
+        />
+      </label>
+
+      <div className="connection-card-actions">
+        <button type="button" className="btn-primary btn-sm" disabled={saving} onClick={onSave}>
+          {saving ? "Saving…" : connected ? "Update key" : "Save & connect"}
+        </button>
+        {showTest && (
+          <button type="button" className="btn-secondary btn-sm" disabled={saving} onClick={onTest}>
+            Test connection
+          </button>
+        )}
+      </div>
+    </article>
+  );
+}
+
+function IntegrationSection({
+  sectionId,
+  sectionKey,
+  children,
+}: {
+  sectionId: string;
+  sectionKey: keyof typeof INTEGRATION_SECTIONS;
+  children: ReactNode;
+}) {
+  const meta = INTEGRATION_SECTIONS[sectionKey];
+  return (
+    <section id={sectionId} className="integration-section">
+      <div className="integration-section-head">
+        <span className="integration-section-step">{meta.step}</span>
+        <div>
+          <h2 className="integration-section-title">{meta.title}</h2>
+          <p className="integration-section-desc">{meta.description}</p>
+        </div>
+      </div>
+      <div className="integration-section-grid">{children}</div>
+    </section>
+  );
 }
 
 export default function ConnectionsHub({
@@ -44,8 +154,7 @@ export default function ConnectionsHub({
     try {
       const res = await fetch(`/api/workspaces/${workspaceId}/config?mask=1`);
       if (res.ok) {
-        const data = (await res.json()) as WorkspaceConfig;
-        setConfig(data);
+        setConfig((await res.json()) as WorkspaceConfig);
       }
     } finally {
       setLoading(false);
@@ -57,8 +166,9 @@ export default function ConnectionsHub({
   }, [load]);
 
   useEffect(() => {
-    if (!focusProvider || !focusRef.current) return;
-    focusRef.current.scrollIntoView({ behavior: "smooth", block: "center" });
+    if (!focusProvider) return;
+    const el = document.getElementById(`connection-${focusProvider}`);
+    el?.scrollIntoView({ behavior: "smooth", block: "center" });
   }, [focusProvider, loading]);
 
   async function saveKey(provider: ApiProviderId) {
@@ -75,7 +185,7 @@ export default function ConnectionsHub({
       if (!res.ok) throw new Error("save failed");
       setDraftKeys((prev) => ({ ...prev, [provider]: "" }));
       await load();
-      setMessage(`${provider} connected`);
+      setMessage(`${provider} saved successfully`);
     } catch {
       setMessage(`Failed to save ${provider}`);
     } finally {
@@ -87,7 +197,7 @@ export default function ConnectionsHub({
     setSaving(`test-${provider}`);
     setMessage("");
     try {
-      const route = `/api/integrations/test/${provider === "openai" ? "openai" : "anthropic"}`;
+      const route = `/api/integrations/test/${provider}`;
       const res = await fetch(route, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -96,11 +206,11 @@ export default function ConnectionsHub({
       const data = (await res.json().catch(() => ({}))) as { message?: string; error?: string };
       setMessage(
         res.ok
-          ? `${provider} test OK${data.message ? `: ${data.message}` : ""}`
-          : `${provider} test failed: ${data.error ?? res.statusText}`
+          ? `${provider} works${data.message ? `: ${data.message}` : ""}`
+          : `Test failed: ${data.error ?? res.statusText}`
       );
     } catch {
-      setMessage(`${provider} test error`);
+      setMessage("Connection test failed");
     } finally {
       setSaving(null);
     }
@@ -113,118 +223,73 @@ export default function ConnectionsHub({
 
   if (loading) return <p className="connections-loading">Loading connections…</p>;
 
+  if (compact) {
+    return (
+      <p className="connections-sub">
+        Open <a href="/integrations">Integrations</a> to manage API keys and MCP tools.
+      </p>
+    );
+  }
+
+  const renderCard = (integration: IntegrationDef) => (
+    <IntegrationCard
+      key={integration.id}
+      integration={integration}
+      connected={isConnected(config, integration.id)}
+      highlighted={focusProvider === integration.id}
+      draftKey={draftKeys[integration.id] ?? ""}
+      onDraftChange={(v) => setDraftKeys((prev) => ({ ...prev, [integration.id]: v }))}
+      saving={saving === integration.id || saving === `test-${integration.id}`}
+      onSave={() => void saveKey(integration.id)}
+      onTest={
+        integration.id === "openai" || integration.id === "anthropic"
+          ? () => void testKey(integration.id as "openai" | "anthropic")
+          : undefined
+      }
+      onOAuth={
+        integration.id === "hubspot" || integration.id === "linkedin"
+          ? () => connectOAuth(integration.id as "hubspot" | "linkedin")
+          : undefined
+      }
+    />
+  );
+
   return (
-    <div className={`connections-hub${compact ? " connections-hub-compact" : ""}`}>
-      <div className="connections-featured-grid" ref={focusRef}>
-        {FEATURED.map((p) => {
-          const connected = Boolean(
-            config.apiKeys?.[p.id as keyof NonNullable<WorkspaceConfig["apiKeys"]>]
-          );
-          const highlighted = focusProvider === p.id;
-          const isOAuth = p.id === "linkedin" || p.id === "hubspot";
+    <div className="connections-hub" ref={focusRef}>
+      <IntegrationsOverview config={config} />
 
-          return (
-            <div
-              key={p.id}
-              id={`connection-${p.id}`}
-              className={`connection-feature-card ${p.brand}${connected ? " connected" : ""}${highlighted ? " focused" : ""}`}
-            >
-              <div className="connection-feature-top">
-                <span className="connection-feature-glyph">{p.glyph}</span>
-                <div>
-                  <strong>{p.label}</strong>
-                  <span className={`connection-feature-status${connected ? " on" : ""}`}>
-                    {connected ? "Connected" : "Not connected"}
-                  </span>
-                </div>
-              </div>
+      <IntegrationSection sectionId="section-ai" sectionKey="ai">
+        {CORE_INTEGRATIONS.filter((i) => i.section === "ai").map(renderCard)}
+      </IntegrationSection>
 
-              {isOAuth ? (
-                <div className="connection-feature-actions">
-                  <button
-                    type="button"
-                    className="btn-primary btn-sm"
-                    onClick={() => connectOAuth(p.id as "linkedin" | "hubspot")}
-                  >
-                    {connected ? "Reconnect" : "Connect with OAuth"}
-                  </button>
-                  <p className="connection-feature-hint">Or paste an access token below</p>
-                </div>
-              ) : null}
+      <IntegrationSection sectionId="section-crm" sectionKey="crm">
+        {CORE_INTEGRATIONS.filter((i) => i.section === "crm").map(renderCard)}
+      </IntegrationSection>
 
-              <input
-                className="settings-input connection-feature-input"
-                type="password"
-                placeholder={`Paste ${p.label} API key`}
-                value={draftKeys[p.id] ?? ""}
-                onChange={(e) => setDraftKeys((prev) => ({ ...prev, [p.id]: e.target.value }))}
-              />
-              <div className="connection-card-actions">
-                <button
-                  type="button"
-                  className="btn-primary btn-sm"
-                  disabled={saving === p.id}
-                  onClick={() => void saveKey(p.id)}
-                >
-                  {saving === p.id ? "…" : "Save key"}
-                </button>
-                {(p.id === "openai" || p.id === "anthropic") && (
-                  <button
-                    type="button"
-                    className="btn-secondary btn-sm"
-                    disabled={saving === `test-${p.id}`}
-                    onClick={() => void testKey(p.id)}
-                  >
-                    Test
-                  </button>
-                )}
-              </div>
-            </div>
-          );
-        })}
-      </div>
+      <IntegrationSection sectionId="section-enrichment" sectionKey="enrichment">
+        {ENRICHMENT_INTEGRATIONS.map(renderCard)}
+      </IntegrationSection>
 
-      <h2 className="connections-title">More integrations</h2>
-      <div className="connections-grid">
-        {OTHER_PROVIDERS.map((p) => {
-          const connected = Boolean(
-            config.apiKeys?.[p.id as keyof NonNullable<WorkspaceConfig["apiKeys"]>]
-          );
-          return (
-            <div key={p.id} className="connection-card">
-              <div className="connection-card-head">
-                <strong>{p.label}</strong>
-                <span className={`connection-status${connected ? " on" : ""}`}>
-                  {connected ? "Connected" : "Not connected"}
-                </span>
-              </div>
-              <input
-                className="settings-input"
-                type="password"
-                placeholder={`Paste ${p.label} key`}
-                value={draftKeys[p.id] ?? ""}
-                onChange={(e) => setDraftKeys((prev) => ({ ...prev, [p.id]: e.target.value }))}
-              />
-              <button
-                type="button"
-                className="btn-primary btn-sm"
-                disabled={saving === p.id}
-                onClick={() => void saveKey(p.id)}
-              >
-                {saving === p.id ? "…" : "Connect"}
-              </button>
-            </div>
-          );
-        })}
-      </div>
+      <section className="integration-section integration-section-mcp">
+        <div className="integration-section-head">
+          <span className="integration-section-step">{INTEGRATION_SECTIONS.mcp.step}</span>
+          <div>
+            <h2 className="integration-section-title">{INTEGRATION_SECTIONS.mcp.title}</h2>
+            <p className="integration-section-desc">{INTEGRATION_SECTIONS.mcp.description}</p>
+          </div>
+        </div>
+        <McpToolCatalog
+          workspaceId={workspaceId}
+          servers={config.mcpServers ?? []}
+          onChange={() => void load()}
+        />
+      </section>
 
-      <McpToolCatalog
-        workspaceId={workspaceId}
-        servers={config.mcpServers ?? []}
-        onChange={() => void load()}
-      />
-
-      {message && <p className="connections-message">{message}</p>}
+      {message && (
+        <p className={`connections-message${message.includes("success") || message.includes("works") ? " ok" : ""}`}>
+          {message}
+        </p>
+      )}
     </div>
   );
 }

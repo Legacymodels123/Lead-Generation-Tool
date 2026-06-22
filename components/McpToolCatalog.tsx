@@ -130,15 +130,6 @@ export default function McpToolCatalog({ workspaceId, servers, onChange }: Props
 
   return (
     <section className="mcp-catalog-section" id="mcp">
-      <div className="mcp-catalog-head">
-        <div>
-          <h2 className="connections-title">MCP tool connections</h2>
-          <p className="connections-sub">
-            Plug in Model Context Protocol servers so agents can use HubSpot, LinkedIn, Sheets, and more.
-          </p>
-        </div>
-      </div>
-
       {servers.length > 0 && (
         <div className="mcp-connected-list">
           <h3 className="mcp-connected-title">Connected</h3>
