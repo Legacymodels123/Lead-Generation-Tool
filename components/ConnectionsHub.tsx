@@ -11,6 +11,8 @@ import {
 } from "@/lib/integrations/catalog";
 import IntegrationsOverview from "@/components/IntegrationsOverview";
 import McpToolCatalog from "@/components/McpToolCatalog";
+import { isIntegrationConnected, integrationConnectionSource } from "@/lib/integrations/status";
+import { useAuth } from "@/lib/auth";
 
 type ApiProviderId = string;
 
@@ -20,14 +22,10 @@ interface Props {
   focusProvider?: string | null;
 }
 
-function isConnected(config: WorkspaceConfig, id: string): boolean {
-  const keys = config.apiKeys ?? {};
-  return Boolean(keys[id as keyof typeof keys]);
-}
-
 function IntegrationCard({
   integration,
   connected,
+  connectionSource,
   highlighted,
   draftKey,
   onDraftChange,
@@ -38,6 +36,7 @@ function IntegrationCard({
 }: {
   integration: IntegrationDef;
   connected: boolean;
+  connectionSource: "api_key" | "oauth" | null;
   highlighted: boolean;
   draftKey: string;
   onDraftChange: (v: string) => void;
@@ -72,7 +71,11 @@ function IntegrationCard({
       </ul>
 
       <div className={`integration-setup-status${connected ? " on" : ""}`}>
-        {connected ? "✓ Connected" : "Not connected yet"}
+        {connected
+          ? connectionSource === "oauth"
+            ? "✓ Connected via OAuth"
+            : "✓ Connected via API key"
+          : "Not connected yet"}
       </div>
 
       {showOAuth && (
@@ -142,11 +145,13 @@ export default function ConnectionsHub({
   compact = false,
   focusProvider = null,
 }: Props) {
+  const { token } = useAuth();
   const [config, setConfig] = useState<WorkspaceConfig>({});
   const [draftKeys, setDraftKeys] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState<string | null>(null);
   const [message, setMessage] = useState("");
+  const [messageOk, setMessageOk] = useState(false);
   const focusRef = useRef<HTMLDivElement>(null);
 
   const load = useCallback(async () => {
@@ -176,18 +181,38 @@ export default function ConnectionsHub({
     if (!value) return;
     setSaving(provider);
     setMessage("");
+    setMessageOk(false);
     try {
       const res = await fetch(`/api/workspaces/${workspaceId}/config`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: token ? `Bearer ${token}` : "",
+        },
         body: JSON.stringify({ apiKeys: { [provider]: value } }),
       });
-      if (!res.ok) throw new Error("save failed");
+      const data = (await res.json().catch(() => ({}))) as {
+        error?: string;
+        _meta?: { storage?: string };
+      };
+      if (!res.ok) {
+        throw new Error(data.error ?? "Opslaan mislukt");
+      }
       setDraftKeys((prev) => ({ ...prev, [provider]: "" }));
       await load();
-      setMessage(`${provider} saved successfully`);
-    } catch {
-      setMessage(`Failed to save ${provider}`);
+      const storage = data._meta?.storage;
+      if (storage === "memory") {
+        setMessage(
+          "Key tijdelijk opgeslagen (alleen lokaal). Zet SUPABASE_SERVICE_ROLE_KEY op Vercel voor permanente opslag."
+        );
+        setMessageOk(false);
+      } else {
+        setMessage(`${provider} opgeslagen in cloud`);
+        setMessageOk(true);
+      }
+    } catch (err) {
+      setMessage(err instanceof Error ? err.message : `Opslaan van ${provider} mislukt`);
+      setMessageOk(false);
     } finally {
       setSaving(null);
     }
@@ -235,7 +260,8 @@ export default function ConnectionsHub({
     <IntegrationCard
       key={integration.id}
       integration={integration}
-      connected={isConnected(config, integration.id)}
+      connected={isIntegrationConnected(config, integration.id)}
+      connectionSource={integrationConnectionSource(config, integration.id)}
       highlighted={focusProvider === integration.id}
       draftKey={draftKeys[integration.id] ?? ""}
       onDraftChange={(v) => setDraftKeys((prev) => ({ ...prev, [integration.id]: v }))}
@@ -286,7 +312,7 @@ export default function ConnectionsHub({
       </section>
 
       {message && (
-        <p className={`connections-message${message.includes("success") || message.includes("works") ? " ok" : ""}`}>
+        <p className={`connections-message${messageOk ? " ok" : " err"}`}>
           {message}
         </p>
       )}

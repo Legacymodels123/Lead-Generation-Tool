@@ -1,6 +1,8 @@
 import type { IntegrationProvider } from "@/lib/types";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { isCloudEnabled } from "@/lib/data/is-cloud";
+import { isMaskedSecret } from "@/lib/integrations/status";
+import { getWorkspaceConfigForApi } from "@/lib/server/workspace-config-api";
 import {
   getConnectionMemory,
   listConnectionsMemory,
@@ -16,6 +18,39 @@ const ENV_MAP: Partial<Record<IntegrationProvider, string>> = {
   apollo: "APOLLO_API_KEY",
   firecrawl: "FIRECRAWL_API_KEY",
 };
+
+const WORKSPACE_KEY_PROVIDERS = new Set<string>([
+  "openai",
+  "anthropic",
+  "hubspot",
+  "hunter",
+  "apollo",
+  "instantly",
+  "linkedin",
+]);
+
+type OAuthStore = Record<string, { accessToken?: string }>;
+
+async function tokenFromWorkspaceConfig(
+  workspaceId: string,
+  provider: IntegrationProvider
+): Promise<string | null> {
+  const config = await getWorkspaceConfigForApi(workspaceId);
+  const apiKey = config.apiKeys?.[provider as keyof typeof config.apiKeys];
+  if (typeof apiKey === "string" && apiKey.trim() && !isMaskedSecret(apiKey)) {
+    return apiKey.trim();
+  }
+
+  const oauth = config.oauth as OAuthStore | undefined;
+  if (provider === "hubspot") {
+    return oauth?.hubspot_oauth?.accessToken ?? oauth?.hubspot?.accessToken ?? null;
+  }
+  if (provider === "linkedin") {
+    return oauth?.linkedin?.accessToken ?? null;
+  }
+
+  return null;
+}
 
 export async function getIntegrationToken(
   workspaceId: string,
@@ -40,6 +75,11 @@ export async function getIntegrationToken(
 
   const mem = getConnectionMemory(workspaceId, userId, provider);
   if (mem?.accessToken) return mem.accessToken;
+
+  if (WORKSPACE_KEY_PROVIDERS.has(provider)) {
+    const fromWorkspace = await tokenFromWorkspaceConfig(workspaceId, provider);
+    if (fromWorkspace) return fromWorkspace;
+  }
 
   const envKey = ENV_MAP[provider];
   if (envKey && process.env[envKey]) return process.env[envKey]!;
@@ -89,6 +129,21 @@ export async function listIntegrationConnections(
   }
 
   return results;
+}
+
+/** Keep integration_connections in sync when keys are saved via Integrations UI */
+export async function syncWorkspaceKeysToConnections(
+  workspaceId: string,
+  userId: string,
+  apiKeys: NonNullable<Awaited<ReturnType<typeof getWorkspaceConfigForApi>>["apiKeys"]>
+): Promise<void> {
+  const providers = ["hubspot", "hunter", "apollo", "linkedin"] as const;
+  for (const provider of providers) {
+    const token = apiKeys[provider as keyof typeof apiKeys];
+    if (typeof token === "string" && token.trim() && !isMaskedSecret(token)) {
+      await saveIntegrationConnection(workspaceId, userId, provider, token.trim());
+    }
+  }
 }
 
 export async function saveIntegrationConnection(

@@ -5,14 +5,10 @@ import type { WorkspaceConfig } from "@/lib/types";
 import {
   CORE_INTEGRATIONS,
 } from "@/lib/integrations/catalog";
+import { isIntegrationConnected } from "@/lib/integrations/status";
 
 interface Props {
   config: WorkspaceConfig;
-}
-
-function isConnected(config: WorkspaceConfig, id: string): boolean {
-  const keys = config.apiKeys ?? {};
-  return Boolean((keys as Record<string, string | undefined>)[id]);
 }
 
 export default function IntegrationsOverview({ config }: Props) {
@@ -21,8 +17,8 @@ export default function IntegrationsOverview({ config }: Props) {
   const mcpCount = config.mcpServers?.filter((s) => s.lastStatus === "ok").length ?? 0;
   const mcpTotal = config.mcpServers?.length ?? 0;
 
-  const aiConnected = aiIds.filter((id) => isConnected(config, id)).length;
-  const crmConnected = crmIds.filter((id) => isConnected(config, id)).length;
+  const aiConnected = aiIds.filter((id) => isIntegrationConnected(config, id)).length;
+  const crmConnected = crmIds.filter((id) => isIntegrationConnected(config, id)).length;
 
   const scrollTo = (anchor: string) => {
     document.getElementById(anchor)?.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -88,8 +84,8 @@ export function useIntegrationStatus(workspaceId: string) {
       const res = await fetch(`/api/workspaces/${workspaceId}/config?mask=1`);
       if (!res.ok) return;
       const data = (await res.json()) as WorkspaceConfig;
-      const ai = ["openai", "anthropic"].filter((id) => isConnected(data, id)).length;
-      const crm = ["hubspot", "linkedin"].filter((id) => isConnected(data, id)).length;
+      const ai = ["openai", "anthropic"].filter((id) => isIntegrationConnected(data, id)).length;
+      const crm = ["hubspot", "linkedin"].filter((id) => isIntegrationConnected(data, id)).length;
       setStatus({
         ai,
         crm,

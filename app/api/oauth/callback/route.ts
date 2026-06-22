@@ -151,8 +151,15 @@ export async function GET(request: NextRequest) {
   }
 
   const currentConfig = workspace?.config || {};
+  const providerKey = provider === "hubspot_oauth" ? "hubspot" : provider;
   const updatedConfig = {
     ...currentConfig,
+    apiKeys: {
+      ...(currentConfig.apiKeys || {}),
+      ...(providerKey === "hubspot" || providerKey === "linkedin"
+        ? { [providerKey]: token.accessToken }
+        : {}),
+    },
     oauth: {
       ...(currentConfig.oauth || {}),
       [provider]: {
