@@ -1,25 +1,36 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { McpConnection, WorkspaceConfig } from "@/lib/types";
 
-const API_PROVIDERS = [
-  { id: "openai", label: "OpenAI", envHint: "OPENAI_API_KEY" },
-  { id: "anthropic", label: "Anthropic", envHint: "ANTHROPIC_API_KEY" },
-  { id: "hunter", label: "Hunter", envHint: "HUNTER_API_KEY" },
-  { id: "apollo", label: "Apollo", envHint: "APOLLO_API_KEY" },
-  { id: "hubspot", label: "HubSpot", envHint: "HUBSPOT_ACCESS_TOKEN" },
-  { id: "instantly", label: "Instantly", envHint: "INSTANTLY_API_KEY" },
+const FEATURED = [
+  { id: "openai", label: "ChatGPT", brand: "integration-openai", glyph: "◆" },
+  { id: "anthropic", label: "Claude", brand: "integration-anthropic", glyph: "✦" },
+  { id: "hubspot", label: "HubSpot", brand: "integration-hubspot", glyph: "⬡" },
+  { id: "linkedin", label: "LinkedIn", brand: "integration-linkedin", glyph: "in" },
 ] as const;
 
-type ApiProviderId = (typeof API_PROVIDERS)[number]["id"];
+const OTHER_PROVIDERS = [
+  { id: "hunter", label: "Hunter" },
+  { id: "apollo", label: "Apollo" },
+  { id: "instantly", label: "Instantly" },
+] as const;
+
+type ApiProviderId =
+  | (typeof FEATURED)[number]["id"]
+  | (typeof OTHER_PROVIDERS)[number]["id"];
 
 interface Props {
   workspaceId: string;
   compact?: boolean;
+  focusProvider?: string | null;
 }
 
-export default function ConnectionsHub({ workspaceId, compact = false }: Props) {
+export default function ConnectionsHub({
+  workspaceId,
+  compact = false,
+  focusProvider = null,
+}: Props) {
   const [config, setConfig] = useState<WorkspaceConfig>({});
   const [draftKeys, setDraftKeys] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
@@ -31,6 +42,7 @@ export default function ConnectionsHub({ workspaceId, compact = false }: Props) 
     enabled: true,
   });
   const [message, setMessage] = useState("");
+  const focusRef = useRef<HTMLDivElement>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -48,6 +60,11 @@ export default function ConnectionsHub({ workspaceId, compact = false }: Props) 
   useEffect(() => {
     void load();
   }, [load]);
+
+  useEffect(() => {
+    if (!focusProvider || !focusRef.current) return;
+    focusRef.current.scrollIntoView({ behavior: "smooth", block: "center" });
+  }, [focusProvider, loading]);
 
   async function saveKey(provider: ApiProviderId) {
     const value = draftKeys[provider]?.trim();
@@ -71,18 +88,11 @@ export default function ConnectionsHub({ workspaceId, compact = false }: Props) 
     }
   }
 
-  async function testKey(provider: ApiProviderId) {
+  async function testKey(provider: "openai" | "anthropic") {
     setSaving(`test-${provider}`);
     setMessage("");
     try {
-      const route =
-        provider === "openai" || provider === "anthropic"
-          ? `/api/integrations/test/${provider === "openai" ? "openai" : "anthropic"}`
-          : null;
-      if (!route) {
-        setMessage(`Test not available for ${provider}`);
-        return;
-      }
+      const route = `/api/integrations/test/${provider === "openai" ? "openai" : "anthropic"}`;
       const res = await fetch(route, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -99,6 +109,11 @@ export default function ConnectionsHub({ workspaceId, compact = false }: Props) 
     } finally {
       setSaving(null);
     }
+  }
+
+  function connectOAuth(provider: "linkedin" | "hubspot") {
+    const oauthProvider = provider === "hubspot" ? "hubspot_oauth" : "linkedin";
+    window.location.href = `/api/oauth/authorize?provider=${oauthProvider}&workspace_id=${encodeURIComponent(workspaceId)}&redirect_to=${encodeURIComponent("/integrations")}`;
   }
 
   async function addMcpServer() {
@@ -152,13 +167,81 @@ export default function ConnectionsHub({ workspaceId, compact = false }: Props) 
 
   return (
     <div className={`connections-hub${compact ? " connections-hub-compact" : ""}`}>
-      <h2 className="connections-title">API keys</h2>
-      <p className="connections-sub">
-        Workspace keys override environment variables for this demo workspace.
-      </p>
+      <div className="connections-featured-grid" ref={focusRef}>
+        {FEATURED.map((p) => {
+          const connected = Boolean(
+            config.apiKeys?.[p.id as keyof NonNullable<WorkspaceConfig["apiKeys"]>]
+          );
+          const highlighted = focusProvider === p.id;
+          const isOAuth = p.id === "linkedin" || p.id === "hubspot";
+
+          return (
+            <div
+              key={p.id}
+              id={`connection-${p.id}`}
+              className={`connection-feature-card ${p.brand}${connected ? " connected" : ""}${highlighted ? " focused" : ""}`}
+            >
+              <div className="connection-feature-top">
+                <span className="connection-feature-glyph">{p.glyph}</span>
+                <div>
+                  <strong>{p.label}</strong>
+                  <span className={`connection-feature-status${connected ? " on" : ""}`}>
+                    {connected ? "Connected" : "Not connected"}
+                  </span>
+                </div>
+              </div>
+
+              {isOAuth ? (
+                <div className="connection-feature-actions">
+                  <button
+                    type="button"
+                    className="btn-primary btn-sm"
+                    onClick={() => connectOAuth(p.id as "linkedin" | "hubspot")}
+                  >
+                    {connected ? "Reconnect" : "Connect with OAuth"}
+                  </button>
+                  <p className="connection-feature-hint">Or paste an access token below</p>
+                </div>
+              ) : null}
+
+              <input
+                className="settings-input connection-feature-input"
+                type="password"
+                placeholder={`Paste ${p.label} API key`}
+                value={draftKeys[p.id] ?? ""}
+                onChange={(e) => setDraftKeys((prev) => ({ ...prev, [p.id]: e.target.value }))}
+              />
+              <div className="connection-card-actions">
+                <button
+                  type="button"
+                  className="btn-primary btn-sm"
+                  disabled={saving === p.id}
+                  onClick={() => void saveKey(p.id)}
+                >
+                  {saving === p.id ? "…" : "Save key"}
+                </button>
+                {(p.id === "openai" || p.id === "anthropic") && (
+                  <button
+                    type="button"
+                    className="btn-secondary btn-sm"
+                    disabled={saving === `test-${p.id}`}
+                    onClick={() => void testKey(p.id)}
+                  >
+                    Test
+                  </button>
+                )}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      <h2 className="connections-title">More integrations</h2>
       <div className="connections-grid">
-        {API_PROVIDERS.map((p) => {
-          const connected = Boolean(config.apiKeys?.[p.id as keyof NonNullable<WorkspaceConfig["apiKeys"]>]);
+        {OTHER_PROVIDERS.map((p) => {
+          const connected = Boolean(
+            config.apiKeys?.[p.id as keyof NonNullable<WorkspaceConfig["apiKeys"]>]
+          );
           return (
             <div key={p.id} className="connection-card">
               <div className="connection-card-head">
@@ -174,26 +257,14 @@ export default function ConnectionsHub({ workspaceId, compact = false }: Props) 
                 value={draftKeys[p.id] ?? ""}
                 onChange={(e) => setDraftKeys((prev) => ({ ...prev, [p.id]: e.target.value }))}
               />
-              <div className="connection-card-actions">
-                <button
-                  type="button"
-                  className="btn-primary btn-sm"
-                  disabled={saving === p.id}
-                  onClick={() => void saveKey(p.id)}
-                >
-                  {saving === p.id ? "…" : "Connect"}
-                </button>
-                {(p.id === "openai" || p.id === "anthropic") && (
-                  <button
-                    type="button"
-                    className="btn-secondary btn-sm"
-                    disabled={saving === `test-${p.id}`}
-                    onClick={() => void testKey(p.id)}
-                  >
-                    Test
-                  </button>
-                )}
-              </div>
+              <button
+                type="button"
+                className="btn-primary btn-sm"
+                disabled={saving === p.id}
+                onClick={() => void saveKey(p.id)}
+              >
+                {saving === p.id ? "…" : "Connect"}
+              </button>
             </div>
           );
         })}
@@ -230,26 +301,6 @@ export default function ConnectionsHub({ workspaceId, compact = false }: Props) 
           value={mcpDraft.url ?? ""}
           onChange={(e) => setMcpDraft((d) => ({ ...d, url: e.target.value }))}
         />
-        <select
-          className="settings-input"
-          value={mcpDraft.authType ?? "none"}
-          onChange={(e) =>
-            setMcpDraft((d) => ({ ...d, authType: e.target.value as McpConnection["authType"] }))
-          }
-        >
-          <option value="none">No auth</option>
-          <option value="bearer">Bearer token</option>
-          <option value="header">Custom headers</option>
-        </select>
-        {mcpDraft.authType === "bearer" && (
-          <input
-            className="settings-input"
-            type="password"
-            placeholder="Bearer token"
-            value={mcpDraft.token ?? ""}
-            onChange={(e) => setMcpDraft((d) => ({ ...d, token: e.target.value }))}
-          />
-        )}
         <button
           type="button"
           className="btn-primary btn-sm"

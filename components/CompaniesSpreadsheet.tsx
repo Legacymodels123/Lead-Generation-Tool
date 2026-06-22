@@ -32,7 +32,8 @@ import LeadDetailPanel from "@/components/LeadDetailPanel";
 import LeadsGrid, { type ColumnAction, type ColumnRunScope } from "@/components/LeadsGrid";
 import CsvImportModal from "@/components/CsvImportModal";
 import ViewSelector from "@/components/ViewSelector";
-import AiConnectButton from "@/components/AiConnectButton";
+import PropertyCreatorModal from "@/components/PropertyCreatorModal";
+import IntegrationConnectStrip from "@/components/IntegrationConnectStrip";
 import ToolbarActionsMenu from "@/components/ToolbarActionsMenu";
 
 type Filter = LeadStatus | "alle";
@@ -73,11 +74,11 @@ export default function CompaniesSpreadsheet() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const lastCheckboxIndex = useRef<number | null>(null);
   const [customColumns, setCustomColumns] = useState<CustomColumn[]>([]);
+  const [propertyCreatorOpen, setPropertyCreatorOpen] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [drawerMode, setDrawerMode] = useState<"create" | "edit">("create");
   const [drawerColumn, setDrawerColumn] = useState<CustomColumn | null>(null);
   const [drawerInitialType, setDrawerInitialType] = useState<CustomColumnType>("text");
-  const [propertyMenuOpen, setPropertyMenuOpen] = useState(false);
   const [showAddModal, setShowAddModal] = useState(false);
   const [showCsvImport, setShowCsvImport] = useState(false);
   const [runningWorkflow, setRunningWorkflow] = useState(false);
@@ -385,20 +386,19 @@ export default function CompaniesSpreadsheet() {
     showToast(`Exported ${filtered.length} rows`);
   }
 
-  function openCreateProperty(type: CustomColumnType) {
-    setDrawerMode("create");
-    setDrawerColumn(null);
-    setDrawerInitialType(type);
-    setDrawerOpen(true);
-    setPropertyMenuOpen(false);
-  }
-
   function openEditProperty(colId: string) {
     const key = colId.startsWith("custom:") ? colId.slice(7) : colId;
     const column = customColumns.find((c) => c.key === key);
     if (!column) return;
     setDrawerMode("edit");
     setDrawerColumn(column);
+    setDrawerOpen(true);
+  }
+
+  function pickPropertyType(type: CustomColumnType) {
+    setDrawerMode("create");
+    setDrawerColumn(null);
+    setDrawerInitialType(type);
     setDrawerOpen(true);
   }
 
@@ -410,10 +410,16 @@ export default function CompaniesSpreadsheet() {
     aiPrompt?: string;
     condition?: CustomColumn["condition"];
   }) {
-    if (!user?.workspaceId) return;
+    if (!user?.workspaceId) {
+      showToast("Workspace not ready");
+      throw new Error("no workspace");
+    }
     if (drawerMode === "create") {
       const created = await createCustomColumnClient(user.workspaceId, token, data);
-      if (!created) throw new Error("create failed");
+      if (!created) {
+        showToast("Could not create property — check connection or sign in");
+        throw new Error("create failed");
+      }
       setCustomColumns((prev) => [...prev, created]);
       const colId = customColumnGridId(created);
       if (!currentView.visibleColumns.includes(colId)) {
@@ -491,6 +497,7 @@ export default function CompaniesSpreadsheet() {
           <span className="smooth-autorun-dot" />
         </button>
         <div className="smooth-toolbar-spacer" />
+        {user?.workspaceId && <IntegrationConnectStrip workspaceId={user.workspaceId} compact />}
         <span
           className={`smooth-save-status smooth-save-status-${saveStatus}`}
           aria-live="polite"
@@ -503,12 +510,6 @@ export default function CompaniesSpreadsheet() {
                 ? "Save failed"
                 : ""}
         </span>
-        {user?.workspaceId && (
-          <>
-            <AiConnectButton workspaceId={user.workspaceId} provider="openai" />
-            <AiConnectButton workspaceId={user.workspaceId} provider="anthropic" />
-          </>
-        )}
         <ToolbarActionsMenu
           onExport={handleExport}
           onImport={() => setShowCsvImport(true)}
@@ -520,29 +521,20 @@ export default function CompaniesSpreadsheet() {
           running={runningWorkflow}
           exportDisabled={filtered.length === 0}
         />
-        <div className="property-add-dropdown">
-          <button
-            type="button"
-            className="smooth-toolbar-btn smooth-toolbar-btn-primary"
-            onClick={() => setPropertyMenuOpen(!propertyMenuOpen)}
-          >
-            + Add Column
-          </button>
-          {propertyMenuOpen && (
-            <div className="property-add-menu">
-              <button type="button" onClick={() => openCreateProperty("text")}>
-                Single line text
-              </button>
-              <button type="button" onClick={() => openCreateProperty("select")}>
-                Dropdown
-              </button>
-              <button type="button" onClick={() => openCreateProperty("ai_enriched")}>
-                AI enriched
-              </button>
-            </div>
-          )}
-        </div>
+        <button
+          type="button"
+          className="smooth-toolbar-btn smooth-toolbar-btn-primary"
+          onClick={() => setPropertyCreatorOpen(true)}
+        >
+          + Property
+        </button>
       </div>
+
+      <PropertyCreatorModal
+        open={propertyCreatorOpen}
+        onClose={() => setPropertyCreatorOpen(false)}
+        onPick={pickPropertyType}
+      />
 
       {showFilters && (
       <div className="sheet-filters smooth-filters">
@@ -624,26 +616,26 @@ export default function CompaniesSpreadsheet() {
           />
         </div>
 
-        <ColumnPropertyDrawer
-          open={drawerOpen}
-          column={drawerColumn}
-          mode={drawerMode}
-          initialType={drawerInitialType}
-          onClose={() => setDrawerOpen(false)}
-          onSave={handleSaveProperty}
-          onRunAi={drawerColumn?.type === "ai_enriched" ? runAiPropertyColumn : undefined}
-        />
+        {selected && (
+          <LeadDetailPanel
+            lead={selected}
+            onClose={() => {
+              setSelectedId(null);
+              setSelectedLeadId(null);
+            }}
+          />
+        )}
       </div>
 
-      {selected && (
-        <LeadDetailPanel
-          lead={selected}
-          onClose={() => {
-            setSelectedId(null);
-            setSelectedLeadId(null);
-          }}
-        />
-      )}
+      <ColumnPropertyDrawer
+        open={drawerOpen}
+        column={drawerColumn}
+        mode={drawerMode}
+        initialType={drawerInitialType}
+        onClose={() => setDrawerOpen(false)}
+        onSave={handleSaveProperty}
+        onRunAi={drawerColumn?.type === "ai_enriched" ? runAiPropertyColumn : undefined}
+      />
 
       {showAddModal && <AddLeadModal onClose={() => setShowAddModal(false)} />}
       {showCsvImport && user?.workspaceId && (

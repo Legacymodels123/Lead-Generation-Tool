@@ -76,7 +76,7 @@ export async function POST(request: NextRequest) {
     const newColumn = await createCustomColumn(workspaceId, {
       key,
       label: sanitizeColumnLabel(label),
-      type: type === "ai_enriched" ? "text" : type,
+      type: type === "ai_enriched" ? "ai_enriched" : type,
       order: nextOrder,
       visible: visible !== false,
       defaultValue,

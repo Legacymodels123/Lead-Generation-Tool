@@ -86,7 +86,11 @@ export async function createCustomColumnClient(
     },
     body: JSON.stringify({ workspaceId, ...payload }),
   });
-  if (!res.ok) return null;
+  if (!res.ok) {
+    const err = (await res.json().catch(() => ({}))) as { error?: string };
+    console.error("Create column failed:", err.error ?? res.status);
+    return null;
+  }
   const created = (await res.json()) as CustomColumn;
   const local = loadCustomColumnsLocal(workspaceId);
   saveCustomColumnsLocal(workspaceId, [...local.filter((c) => c.id !== created.id), created]);

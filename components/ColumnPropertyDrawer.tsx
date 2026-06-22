@@ -142,9 +142,15 @@ export default function ColumnPropertyDrawer({
   if (!open) return null;
 
   return (
-    <aside className={`column-property-drawer${open ? " open" : ""}`}>
+    <div className="column-property-overlay" onClick={onClose} role="presentation">
+      <aside
+        className="column-property-drawer open column-property-modal"
+        onClick={(e) => e.stopPropagation()}
+        role="dialog"
+        aria-labelledby="column-property-title"
+      >
       <div className="column-property-head">
-        <h3>{mode === "create" ? "Add property" : "Column property"}</h3>
+        <h3 id="column-property-title">{mode === "create" ? "Add property" : "Column property"}</h3>
         <button type="button" className="column-property-close" onClick={onClose}>
           ×
         </button>
@@ -294,6 +300,7 @@ export default function ColumnPropertyDrawer({
           </button>
         </div>
       </form>
-    </aside>
+      </aside>
+    </div>
   );
 }

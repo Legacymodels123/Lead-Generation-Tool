@@ -36,10 +36,14 @@ export async function POST(req: NextRequest) {
     }
 
     const columns = await fetchCustomColumns(workspaceId);
-    const column = columns.find((c) => c.id === columnId);
-    if (!column || column.type !== "ai_enriched" || !column.aiPrompt) {
-      return NextResponse.json({ error: "Invalid AI column" }, { status: 400 });
-    }
+  const column = columns.find((c) => c.id === columnId);
+  const aiPrompt = column?.aiPrompt ?? column?.automation?.prompt;
+  if (!column || (column.automation?.kind !== "ai" && column.type !== "ai_enriched")) {
+    return NextResponse.json({ error: "Invalid AI column" }, { status: 400 });
+  }
+  if (!aiPrompt) {
+    return NextResponse.json({ error: "AI column has no prompt" }, { status: 400 });
+  }
 
     const supabase = createAdminClient();
     const useCloud = isCloudEnabled() && supabase;
@@ -57,7 +61,7 @@ export async function POST(req: NextRequest) {
       if (!shouldRunAiForLead(column, lead)) continue;
 
       try {
-        const value = await generateCustomAiValue(column.aiPrompt, lead);
+        const value = await generateCustomAiValue(aiPrompt, lead);
         const patch = {
           customValues: { ...(lead.customValues ?? {}), [column.key]: value },
         };

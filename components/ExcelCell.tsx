@@ -24,6 +24,7 @@ interface Props {
   onSelect: (cell: CellAddress, extend: boolean) => void;
   onStartEdit: (cell: CellAddress) => void;
   onCommit: (value: string) => void;
+  onLiveCommit?: (value: string) => void;
   onCancel: () => void;
   onInputKeyDown: (cell: CellAddress) => (e: KeyboardEvent) => void;
   onFillHandleMouseDown?: (e: MouseEvent) => void;
@@ -48,6 +49,7 @@ export default function ExcelCell({
   onSelect,
   onStartEdit,
   onCommit,
+  onLiveCommit,
   onCancel,
   onInputKeyDown,
   onFillHandleMouseDown,
@@ -56,7 +58,14 @@ export default function ExcelCell({
   className = "",
 }: Props) {
   const inputRef = useRef<HTMLInputElement | HTMLSelectElement>(null);
+  const liveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const { rowKey, colId } = cell;
+
+  useEffect(() => {
+    return () => {
+      if (liveTimerRef.current) clearTimeout(liveTimerRef.current);
+    };
+  }, []);
 
   useEffect(() => {
     if (!isEditing || !inputRef.current) return;
@@ -69,8 +78,15 @@ export default function ExcelCell({
 
   const shown = displayValue ?? value;
 
+  const queueLiveSave = (next: string) => {
+    if (!onLiveCommit) return;
+    if (liveTimerRef.current) clearTimeout(liveTimerRef.current);
+    liveTimerRef.current = setTimeout(() => onLiveCommit(next), 450);
+  };
+
   const commitFromInput = () => {
     if (!inputRef.current) return;
+    if (liveTimerRef.current) clearTimeout(liveTimerRef.current);
     onCommit(inputRef.current.value);
   };
 
@@ -135,6 +151,7 @@ export default function ExcelCell({
             ref={inputRef as React.RefObject<HTMLInputElement>}
             className="excel-cell-editor"
             defaultValue={editSeed ?? value}
+            onInput={(e) => queueLiveSave(e.currentTarget.value)}
             onKeyDown={onInputKeyDown(cell)}
             onMouseDown={(e) => e.stopPropagation()}
             onClick={(e) => e.stopPropagation()}

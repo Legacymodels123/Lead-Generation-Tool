@@ -91,6 +91,22 @@ export function useGridExcel({
     [readActiveInputValue]
   );
 
+  const liveCommit = useCallback(
+    (value: string) => {
+      const cell = editingRef.current;
+      if (!cell) return;
+      setCellValue(
+        leadsRef.current,
+        cell.rowKey,
+        cell.colId,
+        value,
+        writersRef.current,
+        customColumnsRef.current
+      );
+    },
+    []
+  );
+
   const selectCell = useCallback(
     (cell: CellAddress, extend = false) => {
       const prev = editingRef.current;
@@ -446,6 +462,7 @@ export function useGridExcel({
     getEditSeed,
     startEdit,
     commitEdit,
+    liveCommit,
     cancelEdit,
     onFillHandleMouseDown,
     onDragStart,

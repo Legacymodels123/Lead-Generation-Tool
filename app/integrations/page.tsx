@@ -1,28 +1,28 @@
 "use client";
 
-import { useRouter } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import { useAuth } from "@/lib/auth";
 import ConnectionsHub from "@/components/ConnectionsHub";
+import IntegrationConnectStrip from "@/components/IntegrationConnectStrip";
 
 export default function IntegrationsPage() {
   const { user, loading } = useAuth();
-  const router = useRouter();
+  const searchParams = useSearchParams();
+  const focus = searchParams.get("focus");
 
   if (loading) return <div className="page-loading">Loading…</div>;
-  if (!user) {
-    router.push("/login");
-    return null;
-  }
+  if (!user) return <div className="page-loading">Redirecting…</div>;
 
   const workspaceId = user.workspaceId ?? "legacy-scale-models";
 
   return (
     <div className="integrations-page">
       <div className="integrations-page-head">
-        <h1>Integrations</h1>
-        <p>Connect API keys and MCP servers for your workspace.</p>
+        <h1>Connections</h1>
+        <p>Link AI providers and CRM tools to power your lead workspace.</p>
       </div>
-      <ConnectionsHub workspaceId={workspaceId} />
+      <IntegrationConnectStrip workspaceId={workspaceId} />
+      <ConnectionsHub workspaceId={workspaceId} focusProvider={focus} />
     </div>
   );
 }

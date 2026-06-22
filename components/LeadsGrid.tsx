@@ -348,6 +348,7 @@ export default function LeadsGrid({
         onSelect={excel.selectCell}
         onStartEdit={excel.startEdit}
         onCommit={(v) => excel.commitEdit(v)}
+        onLiveCommit={(v) => excel.liveCommit(v)}
         onCancel={excel.cancelEdit}
         onInputKeyDown={excel.bindInputKeys}
         onFillHandleMouseDown={excel.onFillHandleMouseDown}

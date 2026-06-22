@@ -115,42 +115,54 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const saveTimersRef = useRef(new Map<string, ReturnType<typeof setTimeout>>());
   const pendingUpdatesRef = useRef(new Map<string, Partial<Lead>>());
+  const saveChainRef = useRef(new Map<string, Promise<void>>());
   const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const saveStatusTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const flushLeadSave = useCallback(
     async (id: string) => {
       if (!token) return;
-      const updates = pendingUpdatesRef.current.get(id);
-      if (!updates) return;
-      pendingUpdatesRef.current.delete(id);
 
-      setSaveStatus("saving");
-      try {
-        const response = await fetch("/api/leads", {
-          method: "PUT",
-          headers: authHeaders(),
-          body: JSON.stringify({ leadId: id, ...updates }),
-        });
-        if (!response.ok) {
-          const err = await response.json().catch(() => ({}));
+      const run = async () => {
+        const updates = pendingUpdatesRef.current.get(id);
+        if (!updates) return;
+        pendingUpdatesRef.current.delete(id);
+
+        setSaveStatus("saving");
+        try {
+          const response = await fetch("/api/leads", {
+            method: "PUT",
+            headers: authHeaders(),
+            body: JSON.stringify({ leadId: id, ...updates }),
+          });
+          if (!response.ok) {
+            const err = await response.json().catch(() => ({}));
+            setSaveStatus("error");
+            showToast(err.error ? `Save failed: ${err.error}` : "Save failed");
+            await refetchLeads();
+            return;
+          }
+          const data = await response.json();
+          if (data.lead) {
+            setLeads((prev) => prev.map((l) => (l.id === id ? data.lead : l)));
+          }
+          setSaveStatus("saved");
+          if (saveStatusTimerRef.current) clearTimeout(saveStatusTimerRef.current);
+          saveStatusTimerRef.current = setTimeout(() => setSaveStatus("idle"), 2000);
+        } catch (error) {
+          console.error("Failed to update lead:", error);
           setSaveStatus("error");
-          showToast(err.error ? `Opslaan mislukt: ${err.error}` : "Opslaan mislukt");
+          showToast("Error saving");
           await refetchLeads();
-          return;
         }
-        const data = await response.json();
-        if (data.lead) {
-          setLeads((prev) => prev.map((l) => (l.id === id ? data.lead : l)));
-        }
-        setSaveStatus("saved");
-        if (saveStatusTimerRef.current) clearTimeout(saveStatusTimerRef.current);
-        saveStatusTimerRef.current = setTimeout(() => setSaveStatus("idle"), 2000);
-      } catch (error) {
-        console.error("Failed to update lead:", error);
-        setSaveStatus("error");
-        showToast("Fout bij opslaan");
-        await refetchLeads();
+      };
+
+      const prev = saveChainRef.current.get(id) ?? Promise.resolve();
+      const next = prev.then(run).catch(() => undefined);
+      saveChainRef.current.set(id, next);
+      await next;
+      if (saveChainRef.current.get(id) === next) {
+        saveChainRef.current.delete(id);
       }
     },
     [token, authHeaders, showToast, refetchLeads]
@@ -158,7 +170,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const updateLead = useCallback(
     (id: string, updates: Partial<Lead>, immediate = true) => {
-      if (!token) return;
+      if (!token) {
+        showToast("Sign in to save changes");
+        return;
+      }
 
       setLeads((prev) =>
         prev.map((lead) => {
@@ -207,7 +222,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         }, 300)
       );
     },
-    [token, flushLeadSave]
+    [token, flushLeadSave, showToast]
   );
 
   const leadsRef = useRef(leads);
