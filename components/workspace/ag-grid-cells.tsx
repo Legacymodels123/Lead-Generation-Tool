@@ -49,11 +49,14 @@ export function LeadFitCellRenderer(params: ICellRendererParams<WorkspaceLead>) 
 
 export function TextCellRenderer(params: ICellRendererParams<WorkspaceLead>) {
   const value = params.value as string | undefined;
+  const isDraft = isDraftWorkspaceLead(params.data);
+  const isCompanyDraft = isDraft && params.colDef?.field === "company_name";
+
   if (!value?.trim()) {
-    if (isDraftWorkspaceLead(params.data)) {
-      return <span className="ws-cell-placeholder">Click to add…</span>;
+    if (isCompanyDraft) {
+      return <span className="ws-cell-placeholder">Add company…</span>;
     }
-    return <span className="ws-cell-empty">Click to edit</span>;
+    return <span className="ws-cell-empty" />;
   }
   if (params.colDef?.field === "evidence_url" || params.colDef?.field === "domain") {
     return <span className="ws-cell-link">{value}</span>;

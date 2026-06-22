@@ -144,9 +144,8 @@ export default function ExcelCell({
       ) : (
         <div className="excel-cell-display">
           {prefix}
-          <span className="excel-cell-text" title={shown}>
-            {shown ||
-              (className.includes("excel-cell-placeholder") ? "Click to add…" : "\u00a0")}
+          <span className="excel-cell-text" title={shown || undefined}>
+            {shown || "\u00a0"}
           </span>
         </div>
       )}

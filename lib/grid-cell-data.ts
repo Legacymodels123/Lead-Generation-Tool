@@ -2,7 +2,7 @@ import type { Contact, Lead, LeadStatus } from "./types";
 import type { CustomColumn } from "./types";
 
 export const PHANTOM_ROW_PREFIX = "__new__:";
-export const BLANK_ROW_COUNT = 12;
+export const BLANK_ROW_COUNT = 8;
 
 export function isPhantomRowKey(rowKey: string): boolean {
   return rowKey.startsWith(PHANTOM_ROW_PREFIX);

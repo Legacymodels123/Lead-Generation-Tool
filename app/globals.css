@@ -2262,9 +2262,45 @@ body.grid-filling {
   min-height: 34px;
 }
 
+.smooth-grid .excel-cell-bold {
+  font-weight: 500;
+  min-width: 180px;
+}
+.smooth-grid thead th.smooth-company-col,
+.smooth-grid tbody td.smooth-company-col {
+  position: sticky;
+  left: 116px;
+  z-index: 1;
+  min-width: 180px;
+  box-shadow: 1px 0 0 #eceef1;
+}
+.smooth-grid thead th.smooth-company-col {
+  z-index: 5;
+  background: #fff;
+}
+.smooth-grid tbody tr.grid-row:hover td.smooth-company-col {
+  background: #f7f8fa;
+}
+.smooth-grid tbody tr.grid-row.selected td.smooth-company-col {
+  background: #f0f4ff;
+}
+.smooth-grid tbody tr.blank-row td.smooth-company-col {
+  background: #fafbfc;
+}
+
+.smooth-save-status {
+  font-size: 12px;
+  color: #9ca3af;
+  min-width: 72px;
+  text-align: right;
+}
+.smooth-save-status-saving { color: #6b7280; }
+.smooth-save-status-saved { color: #059669; }
+.smooth-save-status-error { color: #dc2626; }
+
 .smooth-grid .excel-cell-placeholder .excel-cell-display .excel-cell-text {
-  color: #cbd5e1;
-  font-style: italic;
+  color: inherit;
+  font-style: normal;
 }
 .smooth-grid .excel-cell-url .excel-cell-display {
   color: #2563eb;

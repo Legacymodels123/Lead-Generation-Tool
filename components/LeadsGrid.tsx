@@ -9,6 +9,7 @@ import { isColumnVisibleForLead } from "@/lib/column-conditions";
 import { customColumnGridId, findCustomColumn, mergeGridColumns } from "@/lib/merge-grid-columns";
 import type { CellAddress } from "@/lib/grid-navigation";
 import { BLANK_ROW_COUNT, isPhantomRowKey, PHANTOM_ROW_PREFIX } from "@/lib/grid-cell-data";
+import { emptyLeadDefaults } from "@/lib/grid/lead-patch";
 import { columnTypeIcon } from "@/lib/grid-column-icons";
 import type { SortDir, SortField } from "@/lib/views";
 import { scoreColor } from "@/lib/utils";
@@ -65,6 +66,7 @@ interface Props {
   onUpdateContact: (leadId: string, contactId: string, updates: Partial<Contact>) => void;
   onToggleExpand: (id: string) => void;
   onAddRow: () => Promise<string | null>;
+  onCreateLead?: (lead: Omit<Lead, "id" | "workspaceId">) => Promise<string | null>;
   onCopyMessage: (id: string) => void;
   onSort: (field: SortField) => void;
   onColumnAction: (action: ColumnAction, scope?: ColumnRunScope) => void;
@@ -99,7 +101,7 @@ function ColumnHeaderMenu({
   const icons = columnTypeIcon(col);
 
   return (
-    <th className={`smooth-header-cell ${col.className ?? ""}`}>
+    <th className={`smooth-header-cell ${col.id === "company" ? "smooth-company-col" : ""} ${col.className ?? ""}`}>
       <div className="col-header smooth-col-header">
         <span className="col-type-icons" aria-hidden>
           <span className="col-type-glyph">{icons.glyph}</span>
@@ -227,6 +229,7 @@ export default function LeadsGrid({
   onUpdateContact,
   onToggleExpand,
   onAddRow,
+  onCreateLead,
   onCopyMessage,
   onSort,
   onColumnAction,
@@ -239,36 +242,47 @@ export default function LeadsGrid({
 }: Props) {
   const gridRef = useRef<HTMLDivElement>(null);
   const headerCheckRef = useRef<HTMLInputElement>(null);
-  const phantomMapRef = useRef(new Map<string, string>());
+  const [phantomMap, setPhantomMap] = useState<Record<string, string>>({});
   const phantomPendingRef = useRef(new Map<string, Promise<string>>());
 
   const ensurePhantomLead = useCallback(
-    async (phantomKey: string): Promise<string> => {
-      const existing = phantomMapRef.current.get(phantomKey);
-      if (existing) return existing;
+    async (phantomKey: string, initialPatch?: Partial<Lead>): Promise<string> => {
+      const existing = phantomMap[phantomKey];
+      if (existing) {
+        if (initialPatch && Object.keys(initialPatch).length > 0) {
+          onUpdate(existing, initialPatch, true);
+        }
+        return existing;
+      }
       const pending = phantomPendingRef.current.get(phantomKey);
       if (pending) return pending;
 
-      const promise = onAddRow().then((id) => {
+      const promise = (async () => {
+        const payload = { ...emptyLeadDefaults(), ...initialPatch };
+        const id = onCreateLead
+          ? await onCreateLead(payload)
+          : await onAddRow();
         if (!id) throw new Error("Could not create company");
-        phantomMapRef.current.set(phantomKey, id);
+        setPhantomMap((prev) => ({ ...prev, [phantomKey]: id }));
         phantomPendingRef.current.delete(phantomKey);
         return id;
-      });
+      })();
       phantomPendingRef.current.set(phantomKey, promise);
       return promise;
     },
-    [onAddRow]
+    [onAddRow, onCreateLead, onUpdate, phantomMap]
   );
 
   const writers = useMemo(
     () => ({
-      onUpdate: (id: string, updates: Partial<Lead>, immediate?: boolean) => {
+      onUpdate: (id: string, updates: Partial<Lead>) => {
         if (isPhantomRowKey(id)) {
-          void ensurePhantomLead(id).then((realId) => onUpdate(realId, updates, immediate));
+          void ensurePhantomLead(id, updates).catch(() => {
+            /* store shows errors */
+          });
           return;
         }
-        onUpdate(id, updates, immediate);
+        onUpdate(id, updates, true);
       },
       onUpdateContact,
     }),
@@ -362,7 +376,9 @@ export default function LeadsGrid({
     const score = lead.score ?? 0;
     const color = scoreColor(score);
     const contactCount = lead.contacts?.length ?? 0;
-    const rowKey = lead.id;
+    const mappedId = phantom ? phantomMap[lead.id] : undefined;
+    const displayLead = mappedId ? leads.find((l) => l.id === mappedId) ?? lead : lead;
+    const rowKey = mappedId ?? lead.id;
 
     if (phantom) {
       const editable = new Set([
@@ -379,38 +395,41 @@ export default function LeadsGrid({
       if (editable.has(colId) || (custom && (custom.type === "text" || custom.type === "select"))) {
         switch (colId) {
           case "company":
-            return ec(rowKey, colId, "", {
-              className: "excel-cell-bold excel-cell-placeholder",
+            return ec(rowKey, colId, displayLead.company ?? "", {
+              className: "excel-cell-bold smooth-company-col",
             });
           case "sector":
-            return ec(rowKey, colId, "", { className: "excel-cell-placeholder" });
+            return ec(rowKey, colId, displayLead.sector ?? "");
           case "city":
-            return ec(rowKey, colId, "", { className: "excel-cell-placeholder" });
+            return ec(rowKey, colId, displayLead.city ?? "");
           case "country":
-            return ec(rowKey, colId, "", { className: "excel-cell-placeholder" });
+            return ec(rowKey, colId, displayLead.country ?? "");
           case "website":
-            return ec(rowKey, colId, "", {
-              className: "excel-cell-url excel-cell-placeholder",
+            return ec(rowKey, colId, displayLead.website ?? "", {
+              className: "excel-cell-url",
             });
           case "market":
-            return ec(rowKey, colId, "", { className: "excel-cell-placeholder" });
+            return ec(rowKey, colId, displayLead.market ?? "");
           case "fitReason":
-            return ec(rowKey, colId, "", { className: "excel-cell-placeholder" });
+            return ec(rowKey, colId, displayLead.fitReason ?? "");
           case "status":
-            return ec(rowKey, colId, "not_qualified", {
+            return ec(rowKey, colId, displayLead.status ?? "not_qualified", {
               type: "select",
               options: STATUS_OPTIONS,
-              displayValue: STATUS_LABELS.not_qualified,
+              displayValue: STATUS_LABELS[displayLead.status ?? "not_qualified"],
             });
           default:
             if (custom?.type === "select") {
-              return ec(rowKey, colId, "", {
+              const val = displayLead.customValues?.[custom.key] ?? "";
+              return ec(rowKey, colId, val, {
                 type: "select",
                 options: (custom.selectOptions ?? []).map((o) => ({ value: o, label: o })),
-                className: "excel-cell-placeholder",
               });
             }
-            return ec(rowKey, colId, "", { className: "excel-cell-placeholder" });
+            if (custom) {
+              return ec(rowKey, colId, displayLead.customValues?.[custom.key] ?? "");
+            }
+            return ec(rowKey, colId, "");
         }
       }
       return (
@@ -422,7 +441,9 @@ export default function LeadsGrid({
 
     switch (colId) {
       case "company":
-        return ec(lead.id, colId, lead.company, { className: "excel-cell-bold" });
+        return ec(lead.id, colId, lead.company, {
+          className: "excel-cell-bold smooth-company-col",
+        });
       case "sector":
         return ec(rowKey, colId, lead.sector);
       case "city":

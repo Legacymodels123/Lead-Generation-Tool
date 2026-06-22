@@ -22,11 +22,15 @@ interface AppContextValue {
   batches: Batch[];
   customColumns: CustomColumn[];
   toast: string | null;
+  saveStatus: "idle" | "saving" | "saved" | "error";
   showToast: (msg: string) => void;
   updateLead: (id: string, updates: Partial<Lead>, immediate?: boolean) => void;
   updateContact: (leadId: string, contactId: string, updates: Partial<Contact>) => void;
   toggleExpand: (id: string) => void;
-  addLead: (lead: Omit<Lead, "id" | "workspaceId">) => Promise<string | null>;
+  addLead: (
+    lead: Omit<Lead, "id" | "workspaceId">,
+    options?: { silent?: boolean }
+  ) => Promise<string | null>;
   addQuickRow: () => Promise<string | null>;
   refetchLeads: () => Promise<void>;
   refetchColumns: () => Promise<void>;
@@ -111,6 +115,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const saveTimersRef = useRef(new Map<string, ReturnType<typeof setTimeout>>());
   const pendingUpdatesRef = useRef(new Map<string, Partial<Lead>>());
+  const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  const saveStatusTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const flushLeadSave = useCallback(
     async (id: string) => {
@@ -119,6 +125,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       if (!updates) return;
       pendingUpdatesRef.current.delete(id);
 
+      setSaveStatus("saving");
       try {
         const response = await fetch("/api/leads", {
           method: "PUT",
@@ -127,13 +134,22 @@ export function AppProvider({ children }: { children: ReactNode }) {
         });
         if (!response.ok) {
           const err = await response.json().catch(() => ({}));
-          showToast(err.error ? `Save failed: ${err.error}` : "Failed to save");
+          setSaveStatus("error");
+          showToast(err.error ? `Opslaan mislukt: ${err.error}` : "Opslaan mislukt");
           await refetchLeads();
           return;
         }
+        const data = await response.json();
+        if (data.lead) {
+          setLeads((prev) => prev.map((l) => (l.id === id ? data.lead : l)));
+        }
+        setSaveStatus("saved");
+        if (saveStatusTimerRef.current) clearTimeout(saveStatusTimerRef.current);
+        saveStatusTimerRef.current = setTimeout(() => setSaveStatus("idle"), 2000);
       } catch (error) {
         console.error("Failed to update lead:", error);
-        showToast("Error saving");
+        setSaveStatus("error");
+        showToast("Fout bij opslaan");
         await refetchLeads();
       }
     },
@@ -141,11 +157,25 @@ export function AppProvider({ children }: { children: ReactNode }) {
   );
 
   const updateLead = useCallback(
-    (id: string, updates: Partial<Lead>, immediate = false) => {
+    (id: string, updates: Partial<Lead>, immediate = true) => {
       if (!token) return;
 
       setLeads((prev) =>
-        prev.map((lead) => (lead.id === id ? { ...lead, ...updates } : lead))
+        prev.map((lead) => {
+          if (lead.id !== id) return lead;
+          return {
+            ...lead,
+            ...updates,
+            ...(updates.customValues
+              ? {
+                  customValues: {
+                    ...(lead.customValues ?? {}),
+                    ...updates.customValues,
+                  },
+                }
+              : {}),
+          };
+        })
       );
 
       pendingUpdatesRef.current.set(id, {
@@ -200,7 +230,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const addLead = useCallback(
-    async (lead: Omit<Lead, "id" | "workspaceId">) => {
+    async (
+      lead: Omit<Lead, "id" | "workspaceId">,
+      options?: { silent?: boolean }
+    ) => {
       if (!token) {
         showToast("Not authenticated");
         return null;
@@ -216,7 +249,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         if (response.ok) {
           const data = await response.json();
           setLeads((prev) => [data.lead, ...prev]);
-          showToast("Lead created");
+          if (!options?.silent) showToast("Lead created");
           return data.lead.id as string;
         }
         showToast("Failed to create lead");
@@ -519,6 +552,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         batches,
         customColumns,
         toast,
+        saveStatus,
         showToast,
         updateLead,
         updateContact,

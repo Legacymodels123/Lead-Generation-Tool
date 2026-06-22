@@ -14,7 +14,7 @@ import { WORKFLOW_PRESETS } from "@/lib/automation/presets";
 import { exportLeadsToCsv } from "@/lib/export-csv";
 import { filterAndSortLeads } from "@/lib/lead-filters";
 import { useApp } from "@/lib/store";
-import type { CustomColumn, CustomColumnType, LeadStatus } from "@/lib/types";
+import type { CustomColumn, CustomColumnType, Lead, LeadStatus } from "@/lib/types";
 import { STATUS_LABELS } from "@/lib/types";
 import type { AiColumnKey } from "@/lib/types/automation";
 import {
@@ -53,6 +53,8 @@ export default function CompaniesSpreadsheet() {
     updateContact,
     toggleExpand,
     addQuickRow,
+    addLead,
+    saveStatus,
     recalculateScores,
     runAiColumns,
     enrichLeads,
@@ -374,6 +376,10 @@ export default function CompaniesSpreadsheet() {
     handleColumnsChange(currentView.visibleColumns.filter((c) => c !== colId));
   }
 
+  async function handleCreateLead(lead: Omit<Lead, "id" | "workspaceId">) {
+    return addLead(lead, { silent: true });
+  }
+
   function handleExport() {
     exportLeadsToCsv(filtered, `companies-${activeView.name.replace(/\s+/g, "-").toLowerCase()}.csv`);
     showToast(`Exported ${filtered.length} rows`);
@@ -485,6 +491,18 @@ export default function CompaniesSpreadsheet() {
           <span className="smooth-autorun-dot" />
         </button>
         <div className="smooth-toolbar-spacer" />
+        <span
+          className={`smooth-save-status smooth-save-status-${saveStatus}`}
+          aria-live="polite"
+        >
+          {saveStatus === "saving"
+            ? "Saving…"
+            : saveStatus === "saved"
+              ? "Saved"
+              : saveStatus === "error"
+                ? "Save failed"
+                : ""}
+        </span>
         {user?.workspaceId && (
           <>
             <AiConnectButton workspaceId={user.workspaceId} provider="openai" />
@@ -573,7 +591,7 @@ export default function CompaniesSpreadsheet() {
           />
           Email
         </label>
-        <span className="sheet-hint">Click cell · type · Tab · Shift+click rows</span>
+        <span className="sheet-hint">Click any cell to edit · Tab to move · Changes save automatically</span>
       </div>
       )}
 
@@ -593,6 +611,7 @@ export default function CompaniesSpreadsheet() {
             onUpdateContact={updateContact}
             onToggleExpand={toggleExpand}
             onAddRow={addQuickRow}
+            onCreateLead={handleCreateLead}
             onCopyMessage={copyMsg}
             onSort={handleSort}
             onColumnAction={handleColumnAction}

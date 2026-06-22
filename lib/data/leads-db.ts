@@ -288,7 +288,16 @@ export async function updateLeadInDb(
   const existing = rowToLead(row as LeadRow, contacts);
 
   const merged = syncPrimaryContactFields(
-    normalizeLead({ ...existing, ...updates, id: leadId })
+    normalizeLead({
+      ...existing,
+      ...updates,
+      customValues: {
+        ...(existing.customValues ?? {}),
+        ...(updates.customValues ?? {}),
+      },
+      contacts: updates.contacts ?? existing.contacts,
+      id: leadId,
+    })
   );
   merged.score = fitScore(merged);
 
