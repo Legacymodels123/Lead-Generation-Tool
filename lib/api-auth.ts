@@ -1,6 +1,7 @@
 import { NextRequest } from "next/server";
 import { getAuthFromRequest } from "@/lib/auth-server";
 import { getSessionUser } from "@/lib/server/store";
+import { getSessionTokenFromRequest } from "@/lib/session-cookie";
 import { DEFAULT_WORKSPACE_ID } from "@/lib/types";
 
 export interface ApiAuthContext {
@@ -19,7 +20,10 @@ export async function getApiAuth(req: NextRequest): Promise<ApiAuthContext | nul
     };
   }
 
-  const token = req.headers.get("authorization")?.replace(/^Bearer\s+/i, "");
+  const token =
+    req.headers.get("authorization")?.replace(/^Bearer\s+/i, "") ??
+    getSessionTokenFromRequest(req);
+
   if (token) {
     const user = getSessionUser(token);
     if (user) {
@@ -29,14 +33,6 @@ export async function getApiAuth(req: NextRequest): Promise<ApiAuthContext | nul
         email: user.email,
       };
     }
-  }
-
-  const userId = req.headers.get("x-user-id");
-  if (userId) {
-    return {
-      userId,
-      workspaceId: req.headers.get("x-workspace-id") ?? DEFAULT_WORKSPACE_ID,
-    };
   }
 
   return null;

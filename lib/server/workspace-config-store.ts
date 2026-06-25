@@ -24,6 +24,11 @@ export function mergeWorkspaceConfig(
   return merged;
 }
 
+function maskSecret(value: string): string {
+  if (value.length <= 4) return "••••";
+  return `${"•".repeat(Math.min(12, value.length - 4))}${value.slice(-4)}`;
+}
+
 export function maskWorkspaceConfig(config: WorkspaceConfig): WorkspaceConfig {
   const masked = { ...config };
   if (masked.apiKeys) {
@@ -31,10 +36,28 @@ export function maskWorkspaceConfig(config: WorkspaceConfig): WorkspaceConfig {
     for (const k of Object.keys(keys) as (keyof typeof keys)[]) {
       const v = keys[k];
       if (typeof v === "string" && v.length > 4) {
-        keys[k] = `${"•".repeat(Math.min(12, v.length - 4))}${v.slice(-4)}`;
+        keys[k] = maskSecret(v);
       }
     }
     masked.apiKeys = keys;
+  }
+  if (masked.oauth) {
+    const oauth: Record<string, unknown> = {};
+    for (const [key, val] of Object.entries(masked.oauth)) {
+      if (val && typeof val === "object" && !Array.isArray(val)) {
+        const entry = { ...(val as Record<string, unknown>) };
+        if (typeof entry.accessToken === "string") {
+          entry.accessToken = maskSecret(entry.accessToken);
+        }
+        if (typeof entry.refreshToken === "string") {
+          entry.refreshToken = maskSecret(entry.refreshToken);
+        }
+        oauth[key] = entry;
+      } else {
+        oauth[key] = val;
+      }
+    }
+    masked.oauth = oauth;
   }
   if (masked.mcpServers) {
     masked.mcpServers = masked.mcpServers.map((s) => ({

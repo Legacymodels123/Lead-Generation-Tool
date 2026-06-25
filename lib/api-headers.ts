@@ -18,11 +18,10 @@ export async function getAccessToken(): Promise<string | null> {
   }
 }
 
-export async function buildApiHeaders(userId: string): Promise<HeadersInit> {
+export async function buildApiHeaders(): Promise<HeadersInit> {
   const token = await getAccessToken();
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
-    "x-user-id": userId,
   };
   if (token) headers.Authorization = `Bearer ${token}`;
   return headers;

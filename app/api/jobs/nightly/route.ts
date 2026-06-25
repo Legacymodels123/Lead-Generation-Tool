@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
+import { verifyCronAuth } from "@/lib/cron-auth";
+import { enrichLeadForWorkspace } from "@/lib/enrichment/enrich-lead-server";
 import { loadLeadsWithContacts } from "@/lib/data/leads-db";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { DEFAULT_WORKSPACE_ID } from "@/lib/types";
 
-async function enrichUser(
-  req: NextRequest,
-  userId: string
-): Promise<{ processed: number; error?: string }> {
+async function enrichUser(userId: string): Promise<{ processed: number; error?: string }> {
   const supabase = createAdminClient();
   if (!supabase) return { processed: 0, error: "Cloud not configured" };
 
@@ -16,34 +16,20 @@ async function enrichUser(
 
   if (!pending.length) return { processed: 0 };
 
-  const enrichRes = await fetch(
-    new URL("/api/leads/enrich", req.url).origin + "/api/leads/enrich",
-    {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-user-id": userId,
-      },
-      body: JSON.stringify({
-        leadIds: pending.slice(0, 10).map((l) => l.id),
-        enrichContacts: true,
-      }),
+  let processed = 0;
+  for (const lead of pending.slice(0, 10)) {
+    const workspaceId = lead.workspaceId ?? DEFAULT_WORKSPACE_ID;
+    const result = await enrichLeadForWorkspace(userId, workspaceId, lead.id);
+    if (result.lead) processed += 1;
+    else if (result.error && processed === 0) {
+      return { processed: 0, error: result.error };
     }
-  );
-
-  if (!enrichRes.ok) {
-    const err = await enrichRes.json().catch(() => ({}));
-    return {
-      processed: 0,
-      error: (err as { error?: string }).error ?? "Enrichment failed",
-    };
   }
 
-  const result = await enrichRes.json();
-  return { processed: (result as { leads?: unknown[] }).leads?.length ?? 0 };
+  return { processed };
 }
 
-async function runNightlyEnrichment(req: NextRequest, body: { userIds?: string[] }) {
+async function runNightlyEnrichment(body: { userIds?: string[] }) {
   const supabase = createAdminClient();
   if (!supabase) {
     return NextResponse.json({ error: "Cloud not configured" }, { status: 503 });
@@ -66,7 +52,7 @@ async function runNightlyEnrichment(req: NextRequest, body: { userIds?: string[]
 
   const results: Array<{ userId: string; processed: number; error?: string }> = [];
   for (const userId of userIds) {
-    results.push({ userId, ...(await enrichUser(req, userId)) });
+    results.push({ userId, ...(await enrichUser(userId)) });
   }
 
   const total = results.reduce((n, r) => n + r.processed, 0);
@@ -78,21 +64,17 @@ async function runNightlyEnrichment(req: NextRequest, body: { userIds?: string[]
 }
 
 export async function GET(req: NextRequest) {
-  const cronSecret = process.env.CRON_SECRET;
-  const authHeader = req.headers.get("authorization");
-  if (cronSecret && authHeader !== `Bearer ${cronSecret}`) {
+  if (!verifyCronAuth(req)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
-  return runNightlyEnrichment(req, {});
+  return runNightlyEnrichment({});
 }
 
 export async function POST(req: NextRequest) {
-  const cronSecret = process.env.CRON_SECRET;
-  const authHeader = req.headers.get("authorization");
-  if (cronSecret && authHeader !== `Bearer ${cronSecret}`) {
+  if (!verifyCronAuth(req)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
   const body = (await req.json().catch(() => ({}))) as { userIds?: string[] };
-  return runNightlyEnrichment(req, body);
+  return runNightlyEnrichment(body);
 }

@@ -61,15 +61,11 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
   const authHeaders = useCallback((): HeadersInit | undefined => {
     if (!token) return undefined;
-    const headers: Record<string, string> = {
+    return {
       Authorization: `Bearer ${token}`,
       "Content-Type": "application/json",
     };
-    if (user?.id) headers["x-user-id"] = user.id;
-    if (user?.workspaceId) headers["x-workspace-id"] = user.workspaceId;
-    else headers["x-workspace-id"] = DEFAULT_WORKSPACE_ID;
-    return headers;
-  }, [token, user?.id, user?.workspaceId]);
+  }, [token]);
 
   const refetchLeads = useCallback(async () => {
     if (!token) {

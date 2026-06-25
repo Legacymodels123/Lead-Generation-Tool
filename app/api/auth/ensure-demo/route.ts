@@ -1,10 +1,15 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { verifyCronAuth } from "@/lib/cron-auth";
 
 const DEMO_EMAIL = "levi@legacy.com";
 const DEMO_PASSWORD = "legacy123";
 
-export async function POST() {
+export async function POST(req: NextRequest) {
+  if (process.env.NODE_ENV === "production" && !verifyCronAuth(req)) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+  }
+
   const supabase = createAdminClient();
   if (!supabase) {
     return NextResponse.json({ error: "Cloud not configured" }, { status: 503 });

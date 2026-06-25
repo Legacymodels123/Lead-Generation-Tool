@@ -59,6 +59,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           if (typeof window !== "undefined") {
             sessionStorage.setItem("auth_user", JSON.stringify(data.user));
           }
+          await fetch("/api/auth/sync-cookie", {
+            method: "POST",
+            headers: { Authorization: `Bearer ${savedToken}` },
+          });
         } else {
           sessionStorage.removeItem("auth_token");
           sessionStorage.removeItem("auth_user");
@@ -100,6 +104,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
         setToken(authToken);
         setUser(userData);
+        await fetch("/api/auth/sync-cookie", {
+          method: "POST",
+          headers: { Authorization: `Bearer ${authToken}` },
+        });
         return null;
       } catch (error) {
         return "Login failed: " + (error as Error).message;
@@ -138,6 +146,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
         setToken(authToken);
         setUser(userData);
+        await fetch("/api/auth/sync-cookie", {
+          method: "POST",
+          headers: { Authorization: `Bearer ${authToken}` },
+        });
         return null;
       } catch (error) {
         return "Registration failed: " + (error as Error).message;
@@ -147,7 +159,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   );
 
   const logout = useCallback(async () => {
-    // Clear sessionStorage
+    try {
+      await fetch("/api/auth/logout", { method: "POST" });
+    } catch {
+      /* ignore */
+    }
     if (typeof window !== "undefined") {
       sessionStorage.removeItem("auth_token");
       sessionStorage.removeItem("auth_user");

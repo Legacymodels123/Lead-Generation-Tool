@@ -4,7 +4,7 @@ import { createClient } from "@supabase/supabase-js";
 export interface AuthContext {
   userId: string;
   email?: string;
-  source: "supabase" | "header";
+  source: "supabase";
 }
 
 export async function getAuthFromRequest(req: NextRequest): Promise<AuthContext | null> {
@@ -22,11 +22,6 @@ export async function getAuthFromRequest(req: NextRequest): Promise<AuthContext 
         return { userId: data.user.id, email: data.user.email, source: "supabase" };
       }
     }
-  }
-
-  const userId = req.headers.get("x-user-id");
-  if (userId) {
-    return { userId, source: "header" };
   }
 
   return null;

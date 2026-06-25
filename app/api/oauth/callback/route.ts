@@ -9,23 +9,7 @@ import {
 import { saveIntegrationConnection } from "@/lib/integrations/credentials";
 import type { IntegrationProvider } from "@/lib/types";
 
-interface StatePayload {
-  provider: string;
-  workspaceId: string;
-  userId?: string;
-  redirectTo?: string;
-  timestamp: number;
-}
-
-function parseState(stateStr: string): StatePayload | null {
-  try {
-    const decoded = Buffer.from(stateStr, "base64").toString("utf-8");
-    return JSON.parse(decoded);
-  } catch {
-    return null;
-  }
-}
-
+import { verifyOAuthState } from "@/lib/oauth/state";
 async function exchangeCodeForToken(
   provider: string,
   code: string,
@@ -96,10 +80,6 @@ async function exchangeCodeForToken(
 }
 
 export async function GET(request: NextRequest) {
-  if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.SUPABASE_SERVICE_ROLE_KEY) {
-    return NextResponse.redirect(new URL("/integrations?error=supabase_not_configured", request.url));
-  }
-
   const searchParams = request.nextUrl.searchParams;
   const code = searchParams.get("code");
   const state = searchParams.get("state");
@@ -116,7 +96,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.redirect(new URL("/integrations?error=missing_code", request.url));
   }
 
-  const stateData = parseState(state);
+  const stateData = verifyOAuthState(state);
   if (!stateData) {
     return NextResponse.redirect(new URL("/integrations?error=invalid_state", request.url));
   }
@@ -177,6 +157,7 @@ export async function GET(request: NextRequest) {
   }
 
   const returnUrl = new URL(redirectTo || "/integrations", request.url);
-  returnUrl.searchParams.set("oauth_success", provider);
+  const displayName = provider === "hubspot_oauth" ? "HubSpot" : provider === "linkedin" ? "LinkedIn" : provider;
+  returnUrl.searchParams.set("oauth_success", displayName);
   return NextResponse.redirect(returnUrl);
 }

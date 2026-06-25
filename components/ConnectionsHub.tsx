@@ -45,7 +45,8 @@ function IntegrationCard({
   onTest?: () => void;
   onOAuth?: () => void;
 }) {
-  const showOAuth = integration.method === "api_key_or_oauth" && onOAuth;
+  const isOAuthPrimary = integration.method === "api_key_or_oauth" && Boolean(onOAuth);
+  const [showManualKey, setShowManualKey] = useState(false);
   const showTest = integration.section === "ai" && onTest;
 
   return (
@@ -54,7 +55,21 @@ function IntegrationCard({
       className={`integration-setup-card ${integration.brand}${connected ? " connected" : ""}${highlighted ? " focused" : ""}`}
     >
       <header className="integration-setup-head">
-        <span className="connection-feature-glyph">{integration.glyph}</span>
+        {isOAuthPrimary ? (
+          <button
+            type="button"
+            className="connection-logo-button"
+            onClick={onOAuth}
+            title={connected ? `Reconnect ${integration.label}` : `Connect ${integration.label}`}
+            aria-label={connected ? `Reconnect ${integration.label}` : `Connect ${integration.label}`}
+          >
+            <span className="connection-feature-glyph connection-feature-glyph-btn">
+              {integration.glyph}
+            </span>
+          </button>
+        ) : (
+          <span className="connection-feature-glyph">{integration.glyph}</span>
+        )}
         <div className="integration-setup-titles">
           <strong>{integration.label}</strong>
           <span className="integration-setup-purpose">{integration.purpose}</span>
@@ -73,45 +88,77 @@ function IntegrationCard({
       <div className={`integration-setup-status${connected ? " on" : ""}`}>
         {connected
           ? connectionSource === "oauth"
-            ? "✓ Connected via OAuth"
+            ? "✓ Connected — signed in via OAuth"
             : "✓ Connected via API key"
-          : "Not connected yet"}
+          : isOAuthPrimary
+            ? "Click the logo to sign in — no keys needed"
+            : "Not connected yet"}
       </div>
 
-      {showOAuth && (
+      {isOAuthPrimary && (
         <div className="integration-setup-oauth">
-          <button type="button" className="btn-primary btn-sm" onClick={onOAuth}>
-            {connected ? "Reconnect with OAuth" : "Connect with OAuth"}
+          <button type="button" className="btn-primary" onClick={onOAuth}>
+            {connected ? `Reconnect ${integration.label}` : `Connect with ${integration.label}`}
           </button>
-          <span className="integration-setup-or">or paste a token</span>
+          <p className="integration-oauth-hint">
+            You&apos;ll be redirected to {integration.label} to approve access. We store the token
+            securely for sync and enrichment.
+          </p>
+          {!showManualKey ? (
+            <button
+              type="button"
+              className="integration-manual-toggle"
+              onClick={() => setShowManualKey(true)}
+            >
+              Use access token instead
+            </button>
+          ) : (
+            <>
+              <span className="integration-setup-or">Manual token (advanced)</span>
+              <label className="integration-setup-field">
+                <span className="sr-only">{integration.label} access token</span>
+                <input
+                  className="settings-input"
+                  type="password"
+                  placeholder={`Paste ${integration.label} private app token`}
+                  value={draftKey}
+                  onChange={(e) => onDraftChange(e.target.value)}
+                />
+              </label>
+              <div className="connection-card-actions">
+                <button type="button" className="btn-secondary btn-sm" disabled={saving} onClick={onSave}>
+                  {saving ? "Saving…" : "Save token"}
+                </button>
+              </div>
+            </>
+          )}
         </div>
       )}
 
-      <label className="integration-setup-field">
-        <span className="sr-only">{integration.label} API key</span>
-        <input
-          className="settings-input"
-          type="password"
-          placeholder={
-            integration.method === "api_key_or_oauth"
-              ? `Paste ${integration.label} access token`
-              : `Paste ${integration.label} API key`
-          }
-          value={draftKey}
-          onChange={(e) => onDraftChange(e.target.value)}
-        />
-      </label>
-
-      <div className="connection-card-actions">
-        <button type="button" className="btn-primary btn-sm" disabled={saving} onClick={onSave}>
-          {saving ? "Saving…" : connected ? "Update key" : "Save & connect"}
-        </button>
-        {showTest && (
-          <button type="button" className="btn-secondary btn-sm" disabled={saving} onClick={onTest}>
-            Test connection
-          </button>
-        )}
-      </div>
+      {!isOAuthPrimary && (
+        <>
+          <label className="integration-setup-field">
+            <span className="sr-only">{integration.label} API key</span>
+            <input
+              className="settings-input"
+              type="password"
+              placeholder={`Paste ${integration.label} API key`}
+              value={draftKey}
+              onChange={(e) => onDraftChange(e.target.value)}
+            />
+          </label>
+          <div className="connection-card-actions">
+            <button type="button" className="btn-primary btn-sm" disabled={saving} onClick={onSave}>
+              {saving ? "Saving…" : connected ? "Update key" : "Save & connect"}
+            </button>
+            {showTest && (
+              <button type="button" className="btn-secondary btn-sm" disabled={saving} onClick={onTest}>
+                Test connection
+              </button>
+            )}
+          </div>
+        </>
+      )}
     </article>
   );
 }
@@ -157,14 +204,16 @@ export default function ConnectionsHub({
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch(`/api/workspaces/${workspaceId}/config?mask=1`);
+      const res = await fetch(`/api/workspaces/${workspaceId}/config?mask=1`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+      });
       if (res.ok) {
         setConfig((await res.json()) as WorkspaceConfig);
       }
     } finally {
       setLoading(false);
     }
-  }, [workspaceId]);
+  }, [workspaceId, token]);
 
   useEffect(() => {
     void load();
@@ -251,8 +300,7 @@ export default function ConnectionsHub({
 
   function connectOAuth(provider: "linkedin" | "hubspot") {
     const oauthProvider = provider === "hubspot" ? "hubspot_oauth" : "linkedin";
-    const userParam = user?.id ? `&user_id=${encodeURIComponent(user.id)}` : "";
-    window.location.href = `/api/oauth/authorize?provider=${oauthProvider}&workspace_id=${encodeURIComponent(workspaceId)}&redirect_to=${encodeURIComponent("/integrations")}${userParam}`;
+    window.location.href = `/api/oauth/authorize?provider=${oauthProvider}&workspace_id=${encodeURIComponent(workspaceId)}&redirect_to=${encodeURIComponent("/integrations")}`;
   }
 
   if (loading) return <p className="connections-loading">Loading connections…</p>;

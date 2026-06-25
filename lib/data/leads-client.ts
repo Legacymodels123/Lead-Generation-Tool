@@ -3,7 +3,7 @@ import type { AiColumnKey } from "@/lib/types/automation";
 import { buildApiHeaders } from "@/lib/api-headers";
 
 export async function fetchCloudData(userId: string): Promise<{ leads: Lead[]; batches: Batch[] }> {
-  const res = await fetch("/api/leads", { headers: await buildApiHeaders(userId) });
+  const res = await fetch("/api/leads", { headers: await buildApiHeaders() });
   if (!res.ok) throw new Error("Kon cloud data niet laden");
   return res.json();
 }
@@ -15,7 +15,7 @@ export async function patchCloudLead(
 ): Promise<Lead> {
   const res = await fetch(`/api/leads/${id}`, {
     method: "PATCH",
-    headers: await buildApiHeaders(userId),
+    headers: await buildApiHeaders(),
     body: JSON.stringify(updates),
   });
   if (!res.ok) throw new Error("Kon lead niet opslaan");
@@ -25,7 +25,7 @@ export async function patchCloudLead(
 export async function postCloudLead(userId: string, lead: Lead): Promise<Lead> {
   const res = await fetch("/api/leads", {
     method: "POST",
-    headers: await buildApiHeaders(userId),
+    headers: await buildApiHeaders(),
     body: JSON.stringify(lead),
   });
   if (!res.ok) throw new Error("Kon lead niet toevoegen");
@@ -35,7 +35,7 @@ export async function postCloudLead(userId: string, lead: Lead): Promise<Lead> {
 export async function recalculateCloudScores(userId: string, ids: string[]): Promise<Lead[]> {
   const res = await fetch("/api/leads/recalculate", {
     method: "POST",
-    headers: await buildApiHeaders(userId),
+    headers: await buildApiHeaders(),
     body: JSON.stringify({ ids }),
   });
   if (!res.ok) throw new Error("Automatisering mislukt");
@@ -50,7 +50,7 @@ export async function runAiColumnsCloud(
 ): Promise<Lead[]> {
   const res = await fetch("/api/automations/run", {
     method: "POST",
-    headers: await buildApiHeaders(userId),
+    headers: await buildApiHeaders(),
     body: JSON.stringify({ leadIds, columns, leads }),
   });
   if (!res.ok) {
@@ -75,7 +75,7 @@ export async function runBatchCloud(
 ): Promise<BatchRunResult> {
   const res = await fetch("/api/batches/run", {
     method: "POST",
-    headers: await buildApiHeaders(userId),
+    headers: await buildApiHeaders(),
     body: JSON.stringify({ existingCompanies, userName, count }),
   });
   if (!res.ok) {
@@ -92,7 +92,7 @@ export async function enrichLeadsCloud(
 ): Promise<{ leads: Lead[]; aiPowered: boolean }> {
   const res = await fetch("/api/leads/enrich", {
     method: "POST",
-    headers: await buildApiHeaders(userId),
+    headers: await buildApiHeaders(),
     body: JSON.stringify({ leadIds, leads, enrichContacts: true }),
   });
   if (!res.ok) {
@@ -110,7 +110,7 @@ export async function syncHubSpotCloud(
 ): Promise<{ leads: Lead[]; synced: number; failed: number }> {
   const res = await fetch("/api/hubspot/sync", {
     method: "POST",
-    headers: await buildApiHeaders(userId),
+    headers: await buildApiHeaders(),
     body: JSON.stringify({ leadIds, leads, includeTimelineNote }),
   });
   if (!res.ok) {
@@ -155,7 +155,7 @@ export async function saveCloudSnapshot(
 ): Promise<void> {
   const res = await fetch("/api/leads", {
     method: "PUT",
-    headers: await buildApiHeaders(userId),
+    headers: await buildApiHeaders(),
     body: JSON.stringify({ leads, batches }),
   });
   if (!res.ok) throw new Error("Kon snapshot niet opslaan");
@@ -179,7 +179,7 @@ export async function dispatchWebhookCloud(
 ): Promise<void> {
   await fetch("/api/integrations/webhook", {
     method: "POST",
-    headers: await buildApiHeaders(userId),
+    headers: await buildApiHeaders(),
     body: JSON.stringify({ event, data }),
   }).catch(() => {});
 }
@@ -192,7 +192,7 @@ export async function pushInstantlyCloud(
 ): Promise<{ added: number; errors: string[] }> {
   const res = await fetch("/api/integrations/instantly", {
     method: "POST",
-    headers: await buildApiHeaders(userId),
+    headers: await buildApiHeaders(),
     body: JSON.stringify({ leadIds, campaignId, leads }),
   });
   if (!res.ok) {
@@ -208,7 +208,7 @@ export async function syncUserSettingsCloud(
 ): Promise<void> {
   await fetch("/api/settings", {
     method: "POST",
-    headers: await buildApiHeaders(userId),
+    headers: await buildApiHeaders(),
     body: JSON.stringify(settings),
   }).catch(() => {});
 }

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { generateId } from "@/lib/utils";
 import { getUserByEmail, createUser, createSession } from "@/lib/server/store";
+import { attachSessionCookie } from "@/lib/session-cookie";
 import type { User } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -60,10 +61,11 @@ export async function POST(request: NextRequest) {
 
     // Return user without password
     const { password, ...userWithoutPassword } = newUser;
-    return NextResponse.json({
+    const response = NextResponse.json({
       user: userWithoutPassword,
       token,
     });
+    return attachSessionCookie(response, token);
   } catch (error) {
     console.error("Register error:", error);
     return NextResponse.json(
