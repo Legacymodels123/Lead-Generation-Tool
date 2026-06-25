@@ -27,7 +27,10 @@ interface AppContextValue {
   batches: Batch[];
   customColumns: CustomColumn[];
   toast: string | null;
+  loadingLeads: boolean;
+  storageMode: "cloud" | "memory" | "unknown";
   saveStatus: "idle" | "saving" | "saved" | "error";
+  lastSavedAt: string | null;
   showToast: (msg: string) => void;
   updateLead: (id: string, updates: Partial<Lead>, immediate?: boolean) => void;
   updateContact: (leadId: string, contactId: string, updates: Partial<Contact>) => void;
@@ -70,6 +73,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const [batches, setBatches] = useState<Batch[]>([]);
   const [customColumns, setCustomColumns] = useState<CustomColumn[]>([]);
   const [toast, setToast] = useState<string | null>(null);
+  const [loadingLeads, setLoadingLeads] = useState(true);
+  const [storageMode, setStorageMode] = useState<"cloud" | "memory" | "unknown">("unknown");
 
   const showToast = useCallback((msg: string) => {
     setToast(msg);
@@ -87,10 +92,13 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const refetchLeads = useCallback(async () => {
     if (!token) {
       setLeads([]);
+      setLoadingLeads(false);
+      setStorageMode("unknown");
       return;
     }
 
     const workspaceId = user?.workspaceId ?? DEFAULT_WORKSPACE_ID;
+    setLoadingLeads(true);
 
     try {
       const response = await fetch("/api/leads", {
@@ -100,6 +108,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
       if (response.ok) {
         const data = await response.json();
         let nextLeads: Lead[] = data.leads || [];
+        setStorageMode(data.storage === "memory" ? "memory" : "cloud");
 
         if (data.storage === "memory") {
           const cached = loadLeadsCache(workspaceId);
@@ -126,7 +135,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
         setLeads(cached);
       }
       console.error("Failed to fetch leads:", error);
+      setStorageMode(cached.length > 0 ? "memory" : "unknown");
       showToast("Failed to load leads");
+    } finally {
+      setLoadingLeads(false);
     }
   }, [token, user?.workspaceId, showToast]);
 
@@ -191,6 +203,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
   const pendingUpdatesRef = useRef(new Map<string, Partial<Lead>>());
   const saveChainRef = useRef(new Map<string, Promise<void>>());
   const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  const [lastSavedAt, setLastSavedAt] = useState<string | null>(null);
   const saveStatusTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const flushLeadSave = useCallback(
@@ -221,6 +234,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
             setLeads((prev) => prev.map((l) => (l.id === id ? data.lead : l)));
           }
           setSaveStatus("saved");
+          setLastSavedAt(new Date().toISOString());
           if (saveStatusTimerRef.current) clearTimeout(saveStatusTimerRef.current);
           saveStatusTimerRef.current = setTimeout(() => setSaveStatus("idle"), 2000);
         } catch (error) {
@@ -338,6 +352,7 @@ export function AppProvider({ children }: { children: ReactNode }) {
         if (response.ok) {
           const data = await response.json();
           setLeads((prev) => [data.lead, ...prev]);
+          setLastSavedAt(new Date().toISOString());
           if (!options?.silent) showToast("Lead created");
           return data.lead.id as string;
         }
@@ -641,7 +656,10 @@ export function AppProvider({ children }: { children: ReactNode }) {
         batches,
         customColumns,
         toast,
+        loadingLeads,
+        storageMode,
         saveStatus,
+        lastSavedAt,
         showToast,
         updateLead,
         updateContact,

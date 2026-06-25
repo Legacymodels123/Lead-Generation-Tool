@@ -12,7 +12,7 @@ interface Props {
 }
 
 export default function LeadDetailPanel({ lead, onClose }: Props) {
-  const { updateLead, showToast } = useApp();
+  const { updateLead, enrichLeads, syncHubSpot, pushInstantly, showToast } = useApp();
   const [copied, setCopied] = useState(false);
 
   function copyMessage() {
@@ -24,6 +24,21 @@ export default function LeadDetailPanel({ lead, onClose }: Props) {
 
   function setStatus(status: LeadStatus) {
     updateLead(lead.id, { status, isNew: false });
+  }
+
+  async function runEnrichment() {
+    const err = await enrichLeads([lead.id]);
+    if (err) showToast(err);
+  }
+
+  async function runHubSpotSync() {
+    const err = await syncHubSpot([lead.id]);
+    if (err) showToast(err);
+  }
+
+  async function pushToInstantly() {
+    const err = await pushInstantly([lead.id]);
+    if (err) showToast(err);
   }
 
   return (
@@ -46,6 +61,21 @@ export default function LeadDetailPanel({ lead, onClose }: Props) {
           </div>
           <div className="panel-score-value" style={{ color: scoreColor(lead.score ?? 0) }}>
             {lead.score}%
+          </div>
+        </div>
+
+        <div className="panel-section">
+          <div className="panel-section-title">Workflow actions</div>
+          <div className="detail-action-grid">
+            <button className="status-btn" type="button" onClick={runEnrichment}>
+              Run enrichment
+            </button>
+            <button className="status-btn" type="button" onClick={runHubSpotSync}>
+              Sync to HubSpot
+            </button>
+            <button className="status-btn" type="button" onClick={pushToInstantly}>
+              Push to Instantly
+            </button>
           </div>
         </div>
 
@@ -78,6 +108,18 @@ export default function LeadDetailPanel({ lead, onClose }: Props) {
           <div className="panel-kv">
             <span className="panel-k">Batch</span>
             <span className="panel-v">{lead.batch}</span>
+          </div>
+          <div className="panel-kv">
+            <span className="panel-k">Website</span>
+            <span className="panel-v">
+              {lead.website ? (
+                <a href={lead.website} target="_blank" rel="noreferrer">
+                  {lead.website}
+                </a>
+              ) : (
+                "—"
+              )}
+            </span>
           </div>
         </div>
 

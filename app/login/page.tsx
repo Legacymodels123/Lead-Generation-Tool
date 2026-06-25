@@ -20,7 +20,7 @@ export default function LoginPage() {
   // Redirect if already logged in
   useEffect(() => {
     if (!loading && user) {
-      router.replace('/companies');
+      router.replace('/workspace');
     }
   }, [user, loading, router]);
 

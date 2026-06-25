@@ -1,21 +1,5 @@
-'use client';
-
-import { useRouter } from 'next/navigation';
-import { useAuth } from '@/lib/auth';
-import CompaniesSpreadsheet from '@/components/CompaniesSpreadsheet';
+import { redirect } from "next/navigation";
 
 export default function CompaniesPage() {
-  const { user, loading } = useAuth();
-  const router = useRouter();
-
-  if (loading) {
-    return <div style={{ padding: '20px' }}>Loading...</div>;
-  }
-
-  if (!user) {
-    router.push('/login');
-    return null;
-  }
-
-  return <CompaniesSpreadsheet />;
+  redirect("/workspace");
 }

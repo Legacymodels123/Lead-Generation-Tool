@@ -12,8 +12,8 @@ const inter = Inter({
 });
 
 export const metadata: Metadata = {
-  title: "Legacy Scale Models — Lead Intelligence",
-  description: "Lead intelligence platform voor Legacy Scale Models",
+  title: "Lead Research Workspace",
+  description: "Spreadsheet-first company research and enrichment workspace",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

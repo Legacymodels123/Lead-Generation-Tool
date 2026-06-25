@@ -44,6 +44,8 @@ export default function CompaniesSpreadsheet() {
   } = useCompaniesPanel();
   const {
     leads,
+    loadingLeads,
+    storageMode,
     showToast,
     updateLead,
     updateContact,
@@ -51,6 +53,7 @@ export default function CompaniesSpreadsheet() {
     addQuickRow,
     addLead,
     saveStatus,
+    lastSavedAt,
     customColumns,
     recalculateScores,
     runAiColumns,
@@ -179,6 +182,8 @@ export default function CompaniesSpreadsheet() {
   );
 
   const selected = leads.find((p) => p.id === selectedId);
+  const selectedCount = selectedIds.size;
+  const activeRows = selectedCount > 0 ? selectedCount : filtered.length;
 
   const stats = useMemo(() => {
     const total = leads.length;
@@ -447,6 +452,58 @@ export default function CompaniesSpreadsheet() {
 
   return (
     <div className="worksheet-shell smooth-worksheet">
+      <div className="companies-hero">
+        <div>
+          <div className="companies-eyebrow">Companies workspace</div>
+          <h1>Build, qualify and sync companies from one grid.</h1>
+          <p>
+            This v2 surface keeps editing, autosave, enrichment and CRM sync inside one
+            dependable workspace instead of splitting them across separate tools.
+          </p>
+        </div>
+        <div className="companies-hero-status">
+          <div className="companies-status-card">
+            <span>Workspace mode</span>
+            <strong>{storageMode === "cloud" ? "Cloud sync" : storageMode === "memory" ? "Local memory" : "Starting up"}</strong>
+          </div>
+          <div className="companies-status-card">
+            <span>Autosave</span>
+            <strong>
+              {saveStatus === "saving"
+                ? "Saving now"
+                : saveStatus === "error"
+                  ? "Needs attention"
+                  : lastSavedAt
+                    ? `Saved ${new Date(lastSavedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`
+                    : "Ready"}
+            </strong>
+          </div>
+        </div>
+      </div>
+
+      <div className="companies-metrics">
+        <div className="companies-metric-card">
+          <span>Total companies</span>
+          <strong>{stats.total}</strong>
+          <p>{loadingLeads ? "Refreshing live data..." : "Visible across this workspace"}</p>
+        </div>
+        <div className="companies-metric-card">
+          <span>Qualified</span>
+          <strong>{stats.qualified}</strong>
+          <p>{stats.notQualified} still need review</p>
+        </div>
+        <div className="companies-metric-card">
+          <span>Average fit</span>
+          <strong>{stats.avgScore || "—"}</strong>
+          <p>Based on scored company rows</p>
+        </div>
+        <div className="companies-metric-card">
+          <span>Selection</span>
+          <strong>{activeRows}</strong>
+          <p>{selectedCount > 0 ? "rows selected for actions" : "rows in current view"}</p>
+        </div>
+      </div>
+
       <div className="smooth-toolbar">
         <div className="smooth-toolbar-search">
           <input
@@ -575,6 +632,13 @@ export default function CompaniesSpreadsheet() {
         </label>
         <span className="sheet-hint">Click any cell to edit · Tab to move · Changes save automatically</span>
       </div>
+      )}
+
+      {selectedCount > 0 && (
+        <div className="companies-selection-bar">
+          <strong>{selectedCount} selected</strong>
+          <span>Run enrichment, AI columns or CRM sync on the selected companies from the toolbar.</span>
+        </div>
       )}
 
       <div className="sheet-body-row">

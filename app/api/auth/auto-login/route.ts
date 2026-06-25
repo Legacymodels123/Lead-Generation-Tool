@@ -21,7 +21,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.redirect(loginUrl);
   }
 
-  const next = request.nextUrl.searchParams.get("next") || "/companies";
+  const next = request.nextUrl.searchParams.get("next") || "/workspace";
   const token = ensureDemoSession();
   const response = NextResponse.redirect(new URL(next, request.url));
   return attachSessionCookie(response, token);

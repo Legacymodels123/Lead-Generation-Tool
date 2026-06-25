@@ -5,6 +5,7 @@ import { SESSION_COOKIE } from "@/lib/session-cookie";
 const PROTECTED_PREFIXES = [
   "/companies",
   "/integrations",
+  "/setup",
   "/settings",
   "/qualified",
   "/contacts",
@@ -33,6 +34,7 @@ export const config = {
   matcher: [
     "/companies/:path*",
     "/integrations/:path*",
+    "/setup/:path*",
     "/settings/:path*",
     "/qualified/:path*",
     "/contacts/:path*",

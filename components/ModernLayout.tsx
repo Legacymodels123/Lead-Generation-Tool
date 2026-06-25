@@ -6,11 +6,17 @@ import { usePathname, useRouter } from 'next/navigation';
 import { useAuth } from '@/lib/auth';
 import { useApp } from '@/lib/store';
 import { CompaniesPanelProvider } from '@/lib/companies-panel-context';
-import CompaniesListPanel from '@/components/CompaniesListPanel';
+ 
+const PRIMARY_NAV = [
+  { href: '/companies', label: 'Companies', icon: '▦', match: (pathname: string) => pathname.startsWith('/companies') || pathname === '/qualified' },
+  { href: '/integrations', label: 'Integrations', icon: '◎', match: (pathname: string) => pathname.startsWith('/integrations') },
+  { href: '/automations', label: 'Automations', icon: '◌', match: (pathname: string) => pathname.startsWith('/automations') },
+  { href: '/settings', label: 'Settings', icon: '⋯', match: (pathname: string) => pathname.startsWith('/settings') },
+];
 
-const FOOTER_NAV = [
-  { href: '/integrations', label: 'Integrations' },
-  { href: '/settings', label: 'Settings' },
+const SECONDARY_NAV = [
+  { href: '/qualified', label: 'Qualified', icon: '✓' },
+  { href: '/contacts', label: 'Contacts', icon: '◐' },
 ];
 
 const SIDEBAR_KEY = 'bl-sidebar-collapsed';
@@ -23,8 +29,14 @@ function ModernLayoutInner({ children }: Props) {
   const router = useRouter();
   const pathname = usePathname();
   const { user, logout, loading } = useAuth();
-  const { leads } = useApp();
+  const { leads, loadingLeads, storageMode, saveStatus, lastSavedAt } = useApp();
   const [collapsed, setCollapsed] = useState(false);
+
+  useEffect(() => {
+    if (!loading && !user) {
+      router.push('/login');
+    }
+  }, [loading, user, router]);
 
   useEffect(() => {
     const stored = localStorage.getItem(SIDEBAR_KEY);
@@ -38,11 +50,6 @@ function ModernLayoutInner({ children }: Props) {
       return next;
     });
   }
-
-  const showCompaniesPanel =
-    pathname === '/companies' ||
-    pathname.startsWith('/companies/') ||
-    pathname === '/qualified';
 
   if (loading) {
     return (
@@ -58,15 +65,24 @@ function ModernLayoutInner({ children }: Props) {
   }
 
   if (!user) {
-    router.push('/login');
     return null;
   }
 
   const qualifiedCount = leads.filter((l) => l.status === 'qualified').length;
-  const companyLists = [
-    { href: '/companies', label: 'All Companies', count: leads.length, active: pathname === '/companies' },
-    { href: '/qualified', label: 'Qualified', count: qualifiedCount, active: pathname === '/qualified' },
-  ];
+  const saveLabel =
+    saveStatus === 'saving'
+      ? 'Saving changes'
+      : saveStatus === 'saved'
+        ? lastSavedAt
+          ? `Saved ${new Date(lastSavedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`
+          : 'Saved'
+        : saveStatus === 'error'
+          ? 'Save failed'
+          : loadingLeads
+            ? 'Loading companies'
+            : 'All changes synced';
+  const storageLabel =
+    storageMode === 'cloud' ? 'Cloud workspace' : storageMode === 'memory' ? 'Local workspace' : 'Workspace';
 
   return (
     <div className="bl-app">
@@ -77,72 +93,69 @@ function ModernLayoutInner({ children }: Props) {
           </button>
           {!collapsed && (
             <>
-              <div className="bl-org-name">{user.company || 'Legacy Scale Models'}</div>
-              <div className="bl-org-plan">Starter Plan</div>
+              <div className="bl-org-name">{user.company || 'Lead workspace'}</div>
+              <div className="bl-org-plan">{storageLabel}</div>
             </>
           )}
         </div>
 
         <nav className="bl-nav">
-          <Link
-            href="/companies"
-            className={`bl-nav-item${pathname === '/companies' ? ' active' : ''}`}
-            title="Dashboard"
-          >
-            <span className="bl-nav-icon">▦</span>
-            {!collapsed && 'Dashboard'}
-          </Link>
-          <Link
-            href="/workspace"
-            className={`bl-nav-item${pathname.startsWith('/workspace') ? ' active' : ''}`}
-            title="Lead workspace"
-          >
-            <span className="bl-nav-icon">⊞</span>
-            {!collapsed && 'Lead workspace'}
-          </Link>
+          {PRIMARY_NAV.map((item) => {
+            const active = item.match(pathname);
+            return (
+              <Link
+                key={item.href}
+                href={item.href}
+                className={`bl-nav-item${active ? ' active' : ''}`}
+                title={item.label}
+              >
+                <span className="bl-nav-icon">{item.icon}</span>
+                {!collapsed && item.label}
+              </Link>
+            );
+          })}
         </nav>
 
         {!collapsed && (
           <div className="bl-lists">
-            <div className="bl-lists-label">Lists</div>
-            <div className="bl-lists-section">Companies</div>
-            {companyLists.map((item) => (
+            <div className="bl-lists-label">Views</div>
+            <div className="bl-lists-section">Pipeline</div>
+            <Link
+              href="/companies"
+              className={`bl-list-item${pathname === '/companies' ? ' active' : ''}`}
+            >
+              <span className="bl-list-name">All Companies</span>
+              <span className="bl-list-count">{leads.length}</span>
+            </Link>
+            <Link
+              href="/qualified"
+              className={`bl-list-item${pathname === '/qualified' ? ' active' : ''}`}
+            >
+              <span className="bl-list-name">Qualified</span>
+              <span className="bl-list-count">{qualifiedCount}</span>
+            </Link>
+            <div className="bl-lists-section">Supporting</div>
+            {SECONDARY_NAV.map((item) => (
               <Link
                 key={item.href}
                 href={item.href}
-                className={`bl-list-item${item.active ? ' active' : ''}`}
+                className={`bl-list-item${pathname.startsWith(item.href) ? ' active' : ''}`}
               >
                 <span className="bl-list-name">{item.label}</span>
-                <span className="bl-list-count">{item.count}</span>
               </Link>
             ))}
-            <div className="bl-lists-section">Contacts</div>
-            <Link
-              href="/contacts"
-              className={`bl-list-item${pathname === '/contacts' ? ' active' : ''}`}
-            >
-              <span className="bl-list-name">All Contacts</span>
-            </Link>
-            <Link
-              href="/automations"
-              className={`bl-list-item${pathname === '/automations' ? ' active' : ''}`}
-            >
-              <span className="bl-list-name">Automations</span>
-            </Link>
           </div>
         )}
 
         <div className="bl-sidebar-foot">
-          {FOOTER_NAV.map((item) => (
-            <Link
-              key={item.href}
-              href={item.href}
-              className={`bl-foot-link${pathname.startsWith(item.href) ? ' active' : ''}`}
-              title={item.label}
-            >
-              {collapsed ? item.label[0] : item.label}
-            </Link>
-          ))}
+          {!collapsed && (
+            <div className="bl-sidebar-status">
+              <div className={`bl-status-pill bl-status-pill-${storageMode}`}>
+                {storageLabel}
+              </div>
+              <div className={`bl-status-copy bl-status-copy-${saveStatus}`}>{saveLabel}</div>
+            </div>
+          )}
           <button
             type="button"
             className="bl-signout"
@@ -158,8 +171,6 @@ function ModernLayoutInner({ children }: Props) {
       </aside>
 
       <main className="bl-main">{children}</main>
-
-      {showCompaniesPanel && <CompaniesListPanel />}
     </div>
   );
 }

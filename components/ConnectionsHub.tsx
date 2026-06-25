@@ -1,6 +1,6 @@
 "use client";
 
-import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { WorkspaceConfig } from "@/lib/types";
 import {
   loadWorkspaceConfigCache,
@@ -258,6 +258,21 @@ export default function ConnectionsHub({
     el?.scrollIntoView({ behavior: "smooth", block: "center" });
   }, [focusProvider, loading]);
 
+  const summary = useMemo(() => {
+    const all = [...CORE_INTEGRATIONS, ...ENRICHMENT_INTEGRATIONS];
+    const connected = all.filter((integration) => isIntegrationConnected(config, integration.id)).length;
+    const oauth = all.filter(
+      (integration) =>
+        integration.method.includes("oauth") &&
+        integrationConnectionSource(config, integration.id) === "oauth"
+    ).length;
+    return {
+      connected,
+      total: all.length,
+      oauth,
+    };
+  }, [config]);
+
   async function saveKey(provider: ApiProviderId) {
     const value = draftKeys[provider]?.trim();
     if (!value) return;
@@ -375,6 +390,21 @@ export default function ConnectionsHub({
 
   return (
     <div className="connections-hub" ref={focusRef}>
+      <section className="integrations-health">
+        <div className="companies-metric-card">
+          <span>Connected services</span>
+          <strong>
+            {summary.connected}/{summary.total}
+          </strong>
+          <p>Available from this workspace right now.</p>
+        </div>
+        <div className="companies-metric-card">
+          <span>OAuth logins</span>
+          <strong>{summary.oauth}</strong>
+          <p>Reconnect here if tokens expire or access changes.</p>
+        </div>
+      </section>
+
       <IntegrationsOverview config={config} />
 
       <IntegrationSection sectionId="section-ai" sectionKey="ai">

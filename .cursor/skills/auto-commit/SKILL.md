@@ -21,11 +21,16 @@ Skip auto-commit only when the user explicitly says not to commit, or when there
    - `git log -3 --oneline`
 3. Stage relevant files. **Never** stage `.env`, `.env.local`, credentials, or `tsconfig.tsbuildinfo`.
 4. Commit with a 1–2 sentence message focused on **why** (match recent repo style).
-5. Push current branch to `origin`:
+5. Push so **Vercel production updates** (it deploys from `main`, not feature branches):
    ```powershell
-   git push -u origin HEAD
+   git checkout main
+   git pull origin main
+   git merge <your-feature-branch> -m "Merge <branch>: short summary"
+   git push origin main
+   git checkout <your-feature-branch>
    ```
-6. Tell the user the commit hash, branch, and that push succeeded (or the error).
+   If already on `main`, `git push origin main` is enough.
+6. Tell the user the commit hash, branch, and that push to `main` succeeded (Vercel rebuild ~2–3 min).
 
 ## Git safety (required)
 
@@ -44,9 +49,9 @@ npm run hooks:install
 
 ## Branch defaults
 
-- Work on the current feature branch (e.g. `feature/baseloop-improvements`).
-- Do **not** push directly to protected `main` unless the user explicitly requests it.
-- If `main` is protected, push the feature branch and mention opening a PR if needed.
+- Develop on `feature/*` branches, then **merge to `main`** for Vercel production.
+- Vercel preview/production uses **`main`** on `Legacymodels123/Lead-Generation-Tool` — pushing only a feature branch does **not** update the live app.
+- Do **not** force-push `main` unless the user explicitly requests it.
 
 ## Commit message examples
 
