@@ -64,7 +64,7 @@ export async function POST(req: NextRequest) {
   let leads: Lead[] = [];
 
   if (isCloudEnabled() && supabase) {
-    const all = await loadLeadsWithContacts(supabase, auth.userId);
+    const all = await loadLeadsWithContacts(supabase, auth.userId, auth.workspaceId);
     const idSet = new Set(leadIds);
     leads = all.filter((l) => idSet.has(l.id));
   }

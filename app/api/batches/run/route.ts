@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getAuthFromRequest } from "@/lib/auth-server";
+import { getApiAuth } from "@/lib/api-auth";
 import {
   batchLabel,
   draftsToLeads,
@@ -8,7 +8,6 @@ import {
 } from "@/lib/automation/batch-generator";
 import { runWithWorkspaceAi } from "@/lib/automation/ai-context";
 import { getAiConfigAsync } from "@/lib/automation/provider";
-import { DEFAULT_WORKSPACE_ID } from "@/lib/types";
 import {
   batchToRow,
   leadToRow,
@@ -23,7 +22,7 @@ import { NIGHTLY_BATCH_LEADS } from "@/lib/types";
 import { generateId } from "@/lib/utils";
 
 export async function POST(req: NextRequest) {
-  const auth = await getAuthFromRequest(req);
+  const auth = await getApiAuth(req);
   if (!auth) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
@@ -38,7 +37,7 @@ export async function POST(req: NextRequest) {
   const existing = body.existingCompanies ?? [];
   const userName = body.userName ?? "Levi";
 
-  return runWithWorkspaceAi(DEFAULT_WORKSPACE_ID, async () => {
+  return runWithWorkspaceAi(auth.workspaceId, async () => {
   const { apiKey, provider } = await getAiConfigAsync();
   const { drafts, source } = await generateBatchLeads(existing, count, userName);
 
@@ -66,14 +65,14 @@ export async function POST(req: NextRequest) {
     }
     const { data: batchRow, error: batchErr } = await supabase
       .from("batches")
-      .insert(batchToRow(batch, auth.userId))
+      .insert(batchToRow(batch, auth.userId, auth.workspaceId))
       .select()
       .single();
     if (batchErr) {
       return NextResponse.json({ error: batchErr.message }, { status: 500 });
     }
 
-    const allLeads = await loadLeadsWithContacts(supabase, auth.userId);
+    const allLeads = await loadLeadsWithContacts(supabase, auth.userId, auth.workspaceId);
 
     return NextResponse.json({
       leads: newLeads,

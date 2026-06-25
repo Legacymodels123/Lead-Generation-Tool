@@ -34,7 +34,7 @@ export async function POST(req: NextRequest) {
   let targets: Lead[] = [];
 
   if (supabase) {
-    const all = await loadLeadsWithContacts(supabase, auth.userId);
+    const all = await loadLeadsWithContacts(supabase, auth.userId, auth.workspaceId);
     const idSet = new Set(leadIds);
     targets = all.filter((l) => idSet.has(l.id));
   } else if (body.leads?.length) {

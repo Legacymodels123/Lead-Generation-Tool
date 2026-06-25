@@ -9,7 +9,8 @@ import {
   type ReactNode,
 } from "react";
 import type { User } from "./types";
-import { STARTING_CREDITS } from "./types";
+import { isSupabaseBrowserConfigured, createClient } from "@/lib/supabase/client";
+import { setCachedToken } from "@/lib/api-headers";
 
 interface AuthContextValue {
   user: User | null;
@@ -23,24 +24,43 @@ interface AuthContextValue {
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
+async function resolveInitialToken(): Promise<string | null> {
+  if (typeof window === "undefined") return null;
+
+  const fromStorage = sessionStorage.getItem("auth_token");
+  if (fromStorage) return fromStorage;
+
+  if (!isSupabaseBrowserConfigured()) return null;
+
+  try {
+    const supabase = createClient();
+    const { data } = await supabase.auth.getSession();
+    const accessToken = data.session?.access_token ?? null;
+    if (accessToken) {
+      sessionStorage.setItem("auth_token", accessToken);
+      setCachedToken(accessToken);
+    }
+    return accessToken;
+  } catch {
+    return null;
+  }
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [token, setToken] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
-  // Initialize on mount - restore session from token
   useEffect(() => {
     async function init() {
       try {
-        const savedToken =
-          typeof window !== "undefined" ? sessionStorage.getItem("auth_token") : null;
-
+        const savedToken = await resolveInitialToken();
         if (!savedToken) return;
 
         setToken(savedToken);
+        setCachedToken(savedToken);
 
-        const cachedUser =
-          typeof window !== "undefined" ? sessionStorage.getItem("auth_user") : null;
+        const cachedUser = sessionStorage.getItem("auth_user");
         if (cachedUser) {
           try {
             setUser(JSON.parse(cachedUser) as User);
@@ -56,9 +76,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         if (response.ok) {
           const data = await response.json();
           setUser(data.user);
-          if (typeof window !== "undefined") {
-            sessionStorage.setItem("auth_user", JSON.stringify(data.user));
-          }
+          sessionStorage.setItem("auth_user", JSON.stringify(data.user));
           await fetch("/api/auth/sync-cookie", {
             method: "POST",
             headers: { Authorization: `Bearer ${savedToken}` },
@@ -68,6 +86,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           sessionStorage.removeItem("auth_user");
           setToken(null);
           setUser(null);
+          setCachedToken(null);
         }
       } catch (err) {
         console.error("Auth init error:", err);
@@ -76,7 +95,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
     }
 
-    init();
+    void init();
   }, []);
 
   const login = useCallback(
@@ -104,6 +123,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
         setToken(authToken);
         setUser(userData);
+        setCachedToken(authToken);
         await fetch("/api/auth/sync-cookie", {
           method: "POST",
           headers: { Authorization: `Bearer ${authToken}` },
@@ -146,6 +166,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
         setToken(authToken);
         setUser(userData);
+        setCachedToken(authToken);
         await fetch("/api/auth/sync-cookie", {
           method: "POST",
           headers: { Authorization: `Bearer ${authToken}` },
@@ -159,6 +180,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   );
 
   const logout = useCallback(async () => {
+    if (isSupabaseBrowserConfigured()) {
+      try {
+        await createClient().auth.signOut();
+      } catch {
+        /* ignore */
+      }
+    }
     try {
       await fetch("/api/auth/logout", { method: "POST" });
     } catch {
@@ -168,6 +196,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       sessionStorage.removeItem("auth_token");
       sessionStorage.removeItem("auth_user");
     }
+    setCachedToken(null);
     setToken(null);
     setUser(null);
   }, []);

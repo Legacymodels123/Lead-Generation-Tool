@@ -1,15 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getAuthFromRequest } from "@/lib/auth-server";
+import { getApiAuth } from "@/lib/api-auth";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { runWithWorkspaceAi } from "@/lib/automation/ai-context";
 import { callAi, parseJsonArray } from "@/lib/automation/provider";
-import { DEFAULT_WORKSPACE_ID } from "@/lib/types";
 import { loadLeadsWithContacts } from "@/lib/data/leads-db";
 
 export const dynamic = "force-dynamic";
 
 export async function POST(req: NextRequest) {
-  const auth = await getAuthFromRequest(req);
+  const auth = await getApiAuth(req);
   if (!auth) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   try {
@@ -23,14 +22,14 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Database not available" }, { status: 503 });
     }
 
-    const all = await loadLeadsWithContacts(supabase, auth.userId);
+    const all = await loadLeadsWithContacts(supabase, auth.userId, auth.workspaceId);
     const leads = all.filter((l) => leadIds.includes(l.id));
 
     if (!leads.length) {
       return NextResponse.json({ error: "No leads found" }, { status: 404 });
     }
 
-    return runWithWorkspaceAi(DEFAULT_WORKSPACE_ID, async () => {
+    return runWithWorkspaceAi(auth.workspaceId, async () => {
     const leadsText = leads
       .map(
         (l) =>

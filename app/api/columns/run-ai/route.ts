@@ -48,7 +48,7 @@ export async function POST(req: NextRequest) {
     const supabase = createAdminClient();
     const useCloud = isCloudEnabled() && supabase;
     const cloudLeads = useCloud
-      ? await loadLeadsWithContacts(supabase, auth.userId)
+      ? await loadLeadsWithContacts(supabase, auth.userId, auth.workspaceId)
       : null;
 
     const updated: string[] = [];

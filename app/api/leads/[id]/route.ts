@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getAuthFromRequest } from "@/lib/auth-server";
+import { getApiAuth } from "@/lib/api-auth";
 import {
   leadToRow,
   loadLeadsWithContacts,
@@ -16,7 +16,7 @@ export async function PATCH(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const auth = await getAuthFromRequest(req);
+  const auth = await getApiAuth(req);
   if (!auth) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const supabase = createAdminClient();
@@ -27,7 +27,7 @@ export async function PATCH(
   const { id } = await params;
   const updates = (await req.json()) as Partial<Lead>;
 
-  const all = await loadLeadsWithContacts(supabase, auth.userId);
+  const all = await loadLeadsWithContacts(supabase, auth.userId, auth.workspaceId);
   const existing = all.find((l) => l.id === id);
   if (!existing) {
     return NextResponse.json({ error: "Lead not found" }, { status: 404 });
@@ -44,6 +44,7 @@ export async function PATCH(
     .update({ ...row, updated_at: new Date().toISOString() })
     .eq("id", id)
     .eq("user_id", auth.userId)
+    .eq("workspace_id", auth.workspaceId)
     .select()
     .single();
 
@@ -56,7 +57,7 @@ export async function DELETE(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const auth = await getAuthFromRequest(req);
+  const auth = await getApiAuth(req);
   if (!auth) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const supabase = createAdminClient();
@@ -66,6 +67,11 @@ export async function DELETE(
 
   const { id } = await params;
   await supabase.from("contacts").delete().eq("account_id", id);
-  await supabase.from("leads").delete().eq("id", id).eq("user_id", auth.userId);
+  await supabase
+    .from("leads")
+    .delete()
+    .eq("id", id)
+    .eq("user_id", auth.userId)
+    .eq("workspace_id", auth.workspaceId);
   return NextResponse.json({ ok: true });
 }

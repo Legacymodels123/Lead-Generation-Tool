@@ -266,8 +266,8 @@ export default function LoginPage() {
             </button>
           </div>
 
-          {/* Demo Credentials */}
-          {mode === 'login' && (
+          {/* Demo credentials — local dev only */}
+          {mode === 'login' && process.env.NODE_ENV === 'development' && (
             <div
               style={{
                 marginTop: '24px',

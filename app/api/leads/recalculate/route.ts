@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
-import { getAuthFromRequest } from "@/lib/auth-server";
-import { loadLeadsWithContacts, rowToLead, type LeadRow } from "@/lib/data/leads-db";
+import { getApiAuth } from "@/lib/api-auth";
+import { loadLeadsWithContacts, type LeadRow } from "@/lib/data/leads-db";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { fitScore } from "@/lib/utils";
 
 export async function POST(req: NextRequest) {
-  const auth = await getAuthFromRequest(req);
+  const auth = await getApiAuth(req);
   if (!auth) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const supabase = createAdminClient();
@@ -18,23 +18,20 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "No leads selected" }, { status: 400 });
   }
 
-  const all = await loadLeadsWithContacts(supabase, auth.userId);
+  const all = await loadLeadsWithContacts(supabase, auth.userId, auth.workspaceId);
   const idSet = new Set(ids);
   const targets = all.filter((l) => idSet.has(l.id));
-  const updatedRows: LeadRow[] = [];
 
   for (const lead of targets) {
     const score = fitScore(lead);
-    const { data } = await supabase
+    await supabase
       .from("leads")
       .update({ score, updated_at: new Date().toISOString() })
       .eq("id", lead.id)
       .eq("user_id", auth.userId)
-      .select()
-      .single();
-    if (data) updatedRows.push(data as LeadRow);
+      .eq("workspace_id", auth.workspaceId);
   }
 
-  const refreshed = await loadLeadsWithContacts(supabase, auth.userId);
+  const refreshed = await loadLeadsWithContacts(supabase, auth.userId, auth.workspaceId);
   return NextResponse.json(refreshed.filter((l) => idSet.has(l.id)));
 }

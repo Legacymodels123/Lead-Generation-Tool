@@ -196,15 +196,17 @@ export function rowToBatch(row: BatchRow): Batch {
 
 export async function loadLeadsWithContacts(
   supabase: ReturnType<typeof import("@/lib/supabase/admin").createAdminClient>,
-  userId: string
+  userId: string,
+  workspaceId?: string
 ): Promise<Lead[]> {
   if (!supabase) return [];
 
-  const { data: leadRows, error } = await supabase
-    .from("leads")
-    .select("*")
-    .eq("user_id", userId)
-    .order("created_at", { ascending: false });
+  let query = supabase.from("leads").select("*").eq("user_id", userId);
+  if (workspaceId) {
+    query = query.eq("workspace_id", workspaceId);
+  }
+
+  const { data: leadRows, error } = await query.order("created_at", { ascending: false });
 
   if (error || !leadRows?.length) return [];
 

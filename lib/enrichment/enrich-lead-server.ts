@@ -23,7 +23,7 @@ export async function enrichLeadForWorkspace(
     const supabase = createAdminClient();
 
     if (isCloudEnabled() && supabase) {
-      const all = await loadLeadsWithContacts(supabase, userId);
+      const all = await loadLeadsWithContacts(supabase, userId, workspaceId);
       lead = all.find((l) => l.id === leadId);
     } else {
       lead = getLead(leadId);

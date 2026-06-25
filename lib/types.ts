@@ -156,7 +156,8 @@ export interface Integrations {
 export interface User {
   id: string;
   email: string;
-  password: string;
+  /** Dev-only in-memory auth; never set for Supabase users */
+  password?: string;
   name: string;
   company: string;
   credits: number;

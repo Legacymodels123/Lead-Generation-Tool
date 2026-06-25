@@ -30,7 +30,7 @@ export async function POST(req: NextRequest) {
   let lead: Lead | undefined;
 
   if (isCloudEnabled() && supabase) {
-    const all = await loadLeadsWithContacts(supabase, auth.userId);
+    const all = await loadLeadsWithContacts(supabase, auth.userId, auth.workspaceId);
     lead = all.find((l) => l.id === leadId);
   } else {
     lead = getLead(leadId);

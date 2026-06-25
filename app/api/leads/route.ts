@@ -28,7 +28,7 @@ export async function GET(req: NextRequest) {
     const supabase = createAdminClient();
     if (isCloudEnabled() && supabase) {
       await seedLeadsToDbIfEmpty(supabase, auth.userId, auth.workspaceId, SEED_LEADS);
-      const leads = await loadLeadsWithContacts(supabase, auth.userId);
+      const leads = await loadLeadsWithContacts(supabase, auth.userId, auth.workspaceId);
       return NextResponse.json({ leads, batches: [] });
     }
 
