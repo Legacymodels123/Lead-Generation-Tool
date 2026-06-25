@@ -1,6 +1,6 @@
 import { NextRequest } from "next/server";
 import { getAuthFromRequest } from "@/lib/auth-server";
-import { isAuthCloudEnabled } from "@/lib/auth/cloud";
+import { isAuthCloudEnabled, isMemoryAuthEnabled } from "@/lib/auth/cloud";
 import { mapSupabaseUserToAppUser } from "@/lib/auth/map-user";
 import { resolveWorkspaceIdForUser } from "@/lib/auth/provision";
 import { getSessionUser } from "@/lib/server/store";
@@ -14,49 +14,69 @@ export interface ApiAuthContext {
   email?: string;
 }
 
+function memoryAuthFromToken(token: string): ApiAuthContext | null {
+  if (!isMemoryAuthEnabled()) return null;
+  const user = getSessionUser(token);
+  if (!user) return null;
+  return {
+    userId: user.id,
+    workspaceId: user.workspaceId ?? DEFAULT_WORKSPACE_ID,
+    email: user.email,
+  };
+}
+
 export async function getApiAuth(req: NextRequest): Promise<ApiAuthContext | null> {
+  const bearer = req.headers.get("authorization")?.replace(/^Bearer\s+/i, "") ?? null;
+  const cookieToken = getSessionTokenFromRequest(req);
+  const token = bearer ?? cookieToken;
+
   const auth = await getAuthFromRequest(req);
   if (auth) {
     const admin = createAdminClient();
     if (admin) {
-      const workspaceId = await resolveWorkspaceIdForUser(
-        admin,
-        auth.userId,
-        auth.userMetadata
-      );
+      try {
+        const workspaceId = await resolveWorkspaceIdForUser(
+          admin,
+          auth.userId,
+          auth.userMetadata
+        );
+        return {
+          userId: auth.userId,
+          workspaceId,
+          email: auth.email,
+        };
+      } catch {
+        /* fall through to memory */
+      }
+    }
+    const metaWorkspace = auth.userMetadata?.workspace_id;
+    if (typeof metaWorkspace === "string" && metaWorkspace.trim()) {
       return {
         userId: auth.userId,
-        workspaceId,
+        workspaceId: metaWorkspace.trim(),
         email: auth.email,
       };
     }
-    const metaWorkspace = auth.userMetadata?.workspace_id;
-    return {
-      userId: auth.userId,
-      workspaceId:
-        typeof metaWorkspace === "string" && metaWorkspace.trim()
-          ? metaWorkspace.trim()
-          : DEFAULT_WORKSPACE_ID,
-      email: auth.email,
-    };
   }
-
-  if (isAuthCloudEnabled()) {
-    return null;
-  }
-
-  const token =
-    req.headers.get("authorization")?.replace(/^Bearer\s+/i, "") ??
-    getSessionTokenFromRequest(req);
 
   if (token) {
-    const user = getSessionUser(token);
-    if (user) {
-      return {
-        userId: user.id,
-        workspaceId: user.workspaceId ?? DEFAULT_WORKSPACE_ID,
-        email: user.email,
-      };
+    const memory = memoryAuthFromToken(token);
+    if (memory) return memory;
+
+    if (isAuthCloudEnabled() && auth) {
+      const admin = createAdminClient();
+      if (admin) {
+        const workspaceId = await resolveWorkspaceIdForUser(
+          admin,
+          auth.userId,
+          auth.userMetadata
+        );
+        return {
+          userId: auth.userId,
+          workspaceId,
+          email: auth.email,
+        };
+      }
     }
   }
 
@@ -64,6 +84,17 @@ export async function getApiAuth(req: NextRequest): Promise<ApiAuthContext | nul
 }
 
 export async function getAppUserFromRequest(req: NextRequest) {
+  const bearer = req.headers.get("authorization")?.replace(/^Bearer\s+/i, "") ?? null;
+  const token = bearer ?? getSessionTokenFromRequest(req);
+
+  if (token) {
+    const memoryUser = getSessionUser(token);
+    if (memoryUser) {
+      const { password: _, ...user } = memoryUser;
+      return user;
+    }
+  }
+
   const auth = await getAuthFromRequest(req);
   if (!auth) return null;
 

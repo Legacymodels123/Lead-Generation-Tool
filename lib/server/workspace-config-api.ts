@@ -4,12 +4,11 @@ import {
   mergeWorkspaceConfig,
 } from "@/lib/server/workspace-config-store";
 import { mergeApiKeysPatch } from "@/lib/integrations/status";
+import { isCloudDataEnabled } from "@/lib/data/is-cloud";
 import type { WorkspaceConfig } from "@/lib/types";
 
 function hasSupabase(): boolean {
-  return Boolean(
-    process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY
-  );
+  return isCloudDataEnabled();
 }
 
 async function getSupabaseAdmin() {

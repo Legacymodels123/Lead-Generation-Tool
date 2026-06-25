@@ -3,6 +3,10 @@
 import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 import type { WorkspaceConfig } from "@/lib/types";
 import {
+  loadWorkspaceConfigCache,
+  saveWorkspaceConfigCache,
+} from "@/lib/client/storage";
+import {
   CORE_INTEGRATIONS,
   ENRICHMENT_INTEGRATIONS,
   INTEGRATION_SECTIONS,
@@ -204,11 +208,40 @@ export default function ConnectionsHub({
   const load = useCallback(async () => {
     setLoading(true);
     try {
+      const cached = loadWorkspaceConfigCache(workspaceId);
       const res = await fetch(`/api/workspaces/${workspaceId}/config?mask=1`, {
         headers: token ? { Authorization: `Bearer ${token}` } : undefined,
       });
       if (res.ok) {
-        setConfig((await res.json()) as WorkspaceConfig);
+        const fromApi = (await res.json()) as WorkspaceConfig;
+        const merged: WorkspaceConfig = {
+          ...cached,
+          ...fromApi,
+          apiKeys: { ...(cached?.apiKeys ?? {}), ...(fromApi.apiKeys ?? {}) },
+          oauth: { ...(cached?.oauth ?? {}), ...(fromApi.oauth ?? {}) },
+        };
+        setConfig(merged);
+        saveWorkspaceConfigCache(workspaceId, merged);
+
+        if (
+          token &&
+          cached &&
+          (Object.keys(cached.apiKeys ?? {}).length > 0 || cached.oauth)
+        ) {
+          await fetch(`/api/workspaces/${workspaceId}/config`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${token}`,
+            },
+            body: JSON.stringify({
+              apiKeys: cached.apiKeys,
+              oauth: cached.oauth,
+            }),
+          });
+        }
+      } else if (cached) {
+        setConfig(cached);
       }
     } finally {
       setLoading(false);
@@ -253,12 +286,15 @@ export default function ConnectionsHub({
         throw new Error(data.error ?? "Opslaan mislukt");
       }
       setDraftKeys((prev) => ({ ...prev, [provider]: "" }));
+      const cached = loadWorkspaceConfigCache(workspaceId) ?? {};
+      saveWorkspaceConfigCache(workspaceId, {
+        ...cached,
+        apiKeys: { ...(cached.apiKeys ?? {}), [provider]: value },
+      });
       await load();
       const storage = data._meta?.storage;
       if (storage === "memory") {
-        setMessage(
-          "Key tijdelijk opgeslagen (alleen lokaal). Zet SUPABASE_SERVICE_ROLE_KEY op Vercel voor permanente opslag."
-        );
+        setMessage("Key opgeslagen (browser + server geheugen).");
         setMessageOk(false);
       } else {
         setMessage(`${provider} opgeslagen in cloud`);

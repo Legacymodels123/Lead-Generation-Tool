@@ -1,6 +1,6 @@
 import { getSupabaseServerKey } from "@/lib/supabase/env";
 
-/** Supabase Auth + admin provisioning available (production path). */
+/** Supabase Auth + admin provisioning available. */
 export function isAuthCloudEnabled(): boolean {
   return Boolean(
     process.env.NEXT_PUBLIC_SUPABASE_URL?.trim() &&
@@ -9,7 +9,15 @@ export function isAuthCloudEnabled(): boolean {
   );
 }
 
-/** In-memory demo auth only when cloud auth is not configured. */
+/**
+ * In-memory demo sessions (stable token, integrations, leads cache).
+ * Enabled by default; set DISABLE_MEMORY_AUTH=1 to turn off.
+ */
+export function isMemoryAuthEnabled(): boolean {
+  return process.env.DISABLE_MEMORY_AUTH !== "1";
+}
+
+/** @deprecated use isMemoryAuthEnabled */
 export function isDevMemoryAuthEnabled(): boolean {
-  return process.env.NODE_ENV === "development" && !isAuthCloudEnabled();
+  return isMemoryAuthEnabled();
 }

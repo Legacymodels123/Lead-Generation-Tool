@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import { isAuthCloudEnabled } from "@/lib/auth/cloud";
+import { isAuthCloudEnabled, isMemoryAuthEnabled } from "@/lib/auth/cloud";
+import { isDemoCredentials, DEMO_EMAIL } from "@/lib/auth/demo";
 import { mapSupabaseUserToAppUser } from "@/lib/auth/map-user";
 import { ensureLegacyDemoMembership } from "@/lib/auth/provision";
-import { getUserByEmail, createSession } from "@/lib/server/store";
+import { getUserByEmail, createSession, ensureDemoSession } from "@/lib/server/store";
 import { attachSessionCookie } from "@/lib/session-cookie";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { createAnonAuthClient } from "@/lib/supabase/anon";
@@ -14,7 +15,7 @@ interface LoginRequest {
   password: string;
 }
 
-const DEMO_EMAIL = "levi@legacy.com";
+const DEMO_EMAIL_LEGACY = DEMO_EMAIL;
 
 export async function POST(request: NextRequest) {
   try {
@@ -40,13 +41,22 @@ export async function POST(request: NextRequest) {
       });
 
       if (error || !data.session || !data.user) {
+        if (isMemoryAuthEnabled() && isDemoCredentials(body.email, body.password)) {
+          const user = getUserByEmail(body.email);
+          if (user && user.password === body.password) {
+            const token = ensureDemoSession();
+            const { password: _, ...userWithoutPassword } = user;
+            const response = NextResponse.json({ user: userWithoutPassword, token });
+            return attachSessionCookie(response, token);
+          }
+        }
         return NextResponse.json(
           { error: error?.message ?? "Invalid email or password" },
           { status: 401 }
         );
       }
 
-      if (body.email.toLowerCase() === DEMO_EMAIL) {
+      if (body.email.toLowerCase() === DEMO_EMAIL_LEGACY) {
         await ensureLegacyDemoMembership(
           admin,
           data.user.id,
@@ -71,7 +81,8 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const token = createSession(user.id);
+    const token =
+      isDemoCredentials(body.email, body.password) ? ensureDemoSession() : createSession(user.id);
     const { password: _, ...userWithoutPassword } = user;
     const response = NextResponse.json({
       user: userWithoutPassword,

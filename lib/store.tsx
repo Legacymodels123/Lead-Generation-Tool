@@ -16,6 +16,7 @@ import { DEFAULT_WORKSPACE_ID } from "./types";
 import type { AiColumnKey } from "./types/automation";
 import { fitScore } from "./utils";
 import { updateContactInLead } from "./utils/contacts";
+import { loadLeadsCache, saveLeadsCache } from "@/lib/client/storage";
 
 interface AppContextValue {
   leads: Lead[];
@@ -73,6 +74,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
       return;
     }
 
+    const workspaceId = user?.workspaceId ?? DEFAULT_WORKSPACE_ID;
+
     try {
       const response = await fetch("/api/leads", {
         headers: { Authorization: `Bearer ${token}` },
@@ -80,14 +83,36 @@ export function AppProvider({ children }: { children: ReactNode }) {
 
       if (response.ok) {
         const data = await response.json();
-        setLeads(data.leads || []);
+        let nextLeads: Lead[] = data.leads || [];
+
+        if (data.storage === "memory") {
+          const cached = loadLeadsCache(workspaceId);
+          if (nextLeads.length === 0 && cached.length > 0) {
+            await fetch("/api/leads/sync", {
+              method: "POST",
+              headers: {
+                Authorization: `Bearer ${token}`,
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({ leads: cached }),
+            });
+            nextLeads = cached;
+          }
+        }
+
+        setLeads(nextLeads);
         setBatches(data.batches || []);
+        saveLeadsCache(workspaceId, nextLeads);
       }
     } catch (error) {
+      const cached = loadLeadsCache(workspaceId);
+      if (cached.length > 0) {
+        setLeads(cached);
+      }
       console.error("Failed to fetch leads:", error);
       showToast("Failed to load leads");
     }
-  }, [token, showToast]);
+  }, [token, user?.workspaceId, showToast]);
 
   const refetchColumns = useCallback(async () => {
     const workspaceId = user?.workspaceId ?? DEFAULT_WORKSPACE_ID;
@@ -108,6 +133,12 @@ export function AppProvider({ children }: { children: ReactNode }) {
     refetchLeads();
     refetchColumns();
   }, [token, refetchLeads, refetchColumns]);
+
+  useEffect(() => {
+    const workspaceId = user?.workspaceId ?? DEFAULT_WORKSPACE_ID;
+    if (!workspaceId || leads.length === 0) return;
+    saveLeadsCache(workspaceId, leads);
+  }, [leads, user?.workspaceId]);
 
   const saveTimersRef = useRef(new Map<string, ReturnType<typeof setTimeout>>());
   const pendingUpdatesRef = useRef(new Map<string, Partial<Lead>>());

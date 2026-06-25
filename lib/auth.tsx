@@ -11,6 +11,12 @@ import {
 import type { User } from "./types";
 import { isSupabaseBrowserConfigured, createClient } from "@/lib/supabase/client";
 import { setCachedToken } from "@/lib/api-headers";
+import {
+  clearAuthSession,
+  loadAuthToken,
+  loadAuthUserJson,
+  saveAuthSession,
+} from "@/lib/client/storage";
 
 interface AuthContextValue {
   user: User | null;
@@ -24,26 +30,36 @@ interface AuthContextValue {
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
-async function resolveInitialToken(): Promise<string | null> {
-  if (typeof window === "undefined") return null;
+async function bootstrapSession(): Promise<{ user: User; token: string } | null> {
+  const trySession = async (headers?: HeadersInit) => {
+    const res = await fetch("/api/auth/session", {
+      credentials: "include",
+      headers,
+    });
+    if (!res.ok) return null;
+    return (await res.json()) as { user: User; token: string };
+  };
 
-  const fromStorage = sessionStorage.getItem("auth_token");
-  if (fromStorage) return fromStorage;
-
-  if (!isSupabaseBrowserConfigured()) return null;
-
-  try {
-    const supabase = createClient();
-    const { data } = await supabase.auth.getSession();
-    const accessToken = data.session?.access_token ?? null;
-    if (accessToken) {
-      sessionStorage.setItem("auth_token", accessToken);
-      setCachedToken(accessToken);
-    }
-    return accessToken;
-  } catch {
-    return null;
+  const savedToken = loadAuthToken();
+  if (savedToken) {
+    const fromBearer = await trySession({ Authorization: `Bearer ${savedToken}` });
+    if (fromBearer) return fromBearer;
   }
+
+  const fromCookie = await trySession();
+  if (fromCookie) return fromCookie;
+
+  const autoRes = await fetch("/api/auth/auto-login", {
+    method: "POST",
+    credentials: "include",
+  });
+  if (!autoRes.ok) return null;
+  return (await autoRes.json()) as { user: User; token: string };
+}
+
+function persistSession(user: User, token: string): void {
+  saveAuthSession(token, JSON.stringify(user));
+  setCachedToken(token);
 }
 
 export function AuthProvider({ children }: { children: ReactNode }) {
@@ -54,13 +70,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     async function init() {
       try {
-        const savedToken = await resolveInitialToken();
-        if (!savedToken) return;
-
-        setToken(savedToken);
-        setCachedToken(savedToken);
-
-        const cachedUser = sessionStorage.getItem("auth_user");
+        const cachedUser = loadAuthUserJson();
         if (cachedUser) {
           try {
             setUser(JSON.parse(cachedUser) as User);
@@ -69,21 +79,34 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           }
         }
 
-        const response = await fetch("/api/auth/me", {
-          headers: { Authorization: `Bearer ${savedToken}` },
-        });
+        if (isSupabaseBrowserConfigured()) {
+          try {
+            const supabase = createClient();
+            const { data } = await supabase.auth.getSession();
+            const accessToken = data.session?.access_token;
+            if (accessToken) {
+              persistSession(
+                (cachedUser ? JSON.parse(cachedUser) : { id: "" }) as User,
+                accessToken
+              );
+            }
+          } catch {
+            /* ignore */
+          }
+        }
 
-        if (response.ok) {
-          const data = await response.json();
-          setUser(data.user);
-          sessionStorage.setItem("auth_user", JSON.stringify(data.user));
+        const session = await bootstrapSession();
+        if (session) {
+          setToken(session.token);
+          setUser(session.user);
+          persistSession(session.user, session.token);
           await fetch("/api/auth/sync-cookie", {
             method: "POST",
-            headers: { Authorization: `Bearer ${savedToken}` },
+            credentials: "include",
+            headers: { Authorization: `Bearer ${session.token}` },
           });
         } else {
-          sessionStorage.removeItem("auth_token");
-          sessionStorage.removeItem("auth_user");
+          clearAuthSession();
           setToken(null);
           setUser(null);
           setCachedToken(null);
@@ -96,6 +119,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
 
     void init();
+  }, []);
+
+  const applyLoginResult = useCallback(async (userData: User, authToken: string) => {
+    persistSession(userData, authToken);
+    setToken(authToken);
+    setUser(userData);
+    await fetch("/api/auth/sync-cookie", {
+      method: "POST",
+      credentials: "include",
+      headers: { Authorization: `Bearer ${authToken}` },
+    });
   }, []);
 
   const login = useCallback(
@@ -113,27 +147,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
 
         const data = await response.json();
-        const { user: userData, token: authToken } = data;
-
-        // Store token in sessionStorage only (temporary, not persistent)
-        if (typeof window !== "undefined") {
-          sessionStorage.setItem("auth_token", authToken);
-          sessionStorage.setItem("auth_user", JSON.stringify(userData));
-        }
-
-        setToken(authToken);
-        setUser(userData);
-        setCachedToken(authToken);
-        await fetch("/api/auth/sync-cookie", {
-          method: "POST",
-          headers: { Authorization: `Bearer ${authToken}` },
-        });
+        await applyLoginResult(data.user, data.token);
         return null;
       } catch (error) {
         return "Login failed: " + (error as Error).message;
       }
     },
-    []
+    [applyLoginResult]
   );
 
   const register = useCallback(
@@ -156,27 +176,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         }
 
         const data = await response.json();
-        const { user: userData, token: authToken } = data;
-
-        // Store token in sessionStorage only
-        if (typeof window !== "undefined") {
-          sessionStorage.setItem("auth_token", authToken);
-          sessionStorage.setItem("auth_user", JSON.stringify(userData));
-        }
-
-        setToken(authToken);
-        setUser(userData);
-        setCachedToken(authToken);
-        await fetch("/api/auth/sync-cookie", {
-          method: "POST",
-          headers: { Authorization: `Bearer ${authToken}` },
-        });
+        await applyLoginResult(data.user, data.token);
         return null;
       } catch (error) {
         return "Registration failed: " + (error as Error).message;
       }
     },
-    []
+    [applyLoginResult]
   );
 
   const logout = useCallback(async () => {
@@ -188,14 +194,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
     }
     try {
-      await fetch("/api/auth/logout", { method: "POST" });
+      await fetch("/api/auth/logout", { method: "POST", credentials: "include" });
     } catch {
       /* ignore */
     }
-    if (typeof window !== "undefined") {
-      sessionStorage.removeItem("auth_token");
-      sessionStorage.removeItem("auth_user");
-    }
+    clearAuthSession();
     setCachedToken(null);
     setToken(null);
     setUser(null);
@@ -204,7 +207,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const updateUser = useCallback((updates: Partial<User>) => {
     setUser((prev) => {
       if (!prev) return null;
-      return { ...prev, ...updates };
+      const next = { ...prev, ...updates };
+      if (typeof window !== "undefined") {
+        const t = loadAuthToken();
+        if (t) saveAuthSession(t, JSON.stringify(next));
+      }
+      return next;
     });
   }, []);
 

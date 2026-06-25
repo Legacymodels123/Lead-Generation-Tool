@@ -1,6 +1,11 @@
+import { isMemoryAuthEnabled } from "@/lib/auth/cloud";
+import {
+  buildDemoUser,
+  DEMO_SESSION_TOKEN,
+  DEMO_WORKSPACE_ID,
+} from "@/lib/auth/demo";
 import type { User, Lead } from "@/lib/types";
 import { SEED_LEADS } from "@/lib/seed-data";
-import { isDevMemoryAuthEnabled } from "@/lib/auth/cloud";
 
 interface Store {
   users: Map<string, User>;
@@ -14,61 +19,41 @@ const globalStore: Store = {
   sessions: new Map(),
 };
 
-const DEV_DEMO_PASSWORD = "legacy123";
-
-function initDevStore(): void {
-  if (!isDevMemoryAuthEnabled()) return;
+function initMemoryStore(): void {
+  if (!isMemoryAuthEnabled()) return;
   if (globalStore.users.size > 0) return;
 
-  const demoUser: User = {
-    id: "demo-user-001",
-    email: "levi@legacy.com",
-    password: DEV_DEMO_PASSWORD,
-    name: "Levi Kempen",
-    company: "Legacy Scale Models",
-    credits: 100,
-    workspaceId: "legacy-scale-models",
-    transactions: [
-      {
-        id: "tx-demo-001",
-        type: "bonus",
-        amount: 100,
-        description: "Welcome bonus",
-        createdAt: new Date().toISOString(),
-      },
-    ],
-    integrations: {
-      linkedin: false,
-      crm: false,
-      webhooks: false,
-      nightlyAgent: false,
-    },
-  };
-
-  globalStore.users.set(demoUser.email, demoUser);
+  const demoUser = buildDemoUser();
+  globalStore.users.set(demoUser.email.toLowerCase(), demoUser);
+  globalStore.sessions.set(DEMO_SESSION_TOKEN, demoUser.id);
 
   for (const lead of SEED_LEADS) {
     globalStore.leads.set(lead.id, {
       ...lead,
-      workspaceId: demoUser.workspaceId!,
+      workspaceId: DEMO_WORKSPACE_ID,
     });
   }
 }
 
-function assertDevStore(): void {
-  if (!isDevMemoryAuthEnabled()) {
-    throw new Error("In-memory store is only available in local development without Supabase");
+function assertMemoryStore(): void {
+  if (!isMemoryAuthEnabled()) {
+    throw new Error("Memory store is disabled");
   }
-  initDevStore();
+  initMemoryStore();
+}
+
+export function ensureDemoSession(): string {
+  assertMemoryStore();
+  return DEMO_SESSION_TOKEN;
 }
 
 export function getUserByEmail(email: string): User | undefined {
-  assertDevStore();
+  assertMemoryStore();
   return globalStore.users.get(email.toLowerCase());
 }
 
 export function getUserById(userId: string): User | undefined {
-  assertDevStore();
+  assertMemoryStore();
   for (const user of globalStore.users.values()) {
     if (user.id === userId) {
       return user;
@@ -78,13 +63,13 @@ export function getUserById(userId: string): User | undefined {
 }
 
 export function createUser(user: User): User {
-  assertDevStore();
+  assertMemoryStore();
   globalStore.users.set(user.email.toLowerCase(), user);
   return user;
 }
 
 export function updateUser(userId: string, updates: Partial<User>): User | undefined {
-  assertDevStore();
+  assertMemoryStore();
   const user = getUserById(userId);
   if (!user) return undefined;
 
@@ -94,47 +79,58 @@ export function updateUser(userId: string, updates: Partial<User>): User | undef
 }
 
 export function createSession(userId: string): string {
-  assertDevStore();
+  assertMemoryStore();
   const token = Buffer.from(userId + ":" + Date.now()).toString("base64");
   globalStore.sessions.set(token, userId);
   return token;
 }
 
 export function getSessionUser(token: string): User | undefined {
-  if (!isDevMemoryAuthEnabled()) return undefined;
-  initDevStore();
+  if (!isMemoryAuthEnabled()) return undefined;
+  initMemoryStore();
   const userId = globalStore.sessions.get(token);
   if (!userId) return undefined;
   return getUserById(userId);
 }
 
 export function deleteSession(token: string): void {
-  if (!isDevMemoryAuthEnabled()) return;
+  if (!isMemoryAuthEnabled()) return;
   globalStore.sessions.delete(token);
 }
 
 export function getLeads(workspaceId: string): Lead[] {
-  assertDevStore();
+  assertMemoryStore();
   return Array.from(globalStore.leads.values()).filter((l) => l.workspaceId === workspaceId);
 }
 
 export function getLead(leadId: string): Lead | undefined {
-  assertDevStore();
+  assertMemoryStore();
   return globalStore.leads.get(leadId);
 }
 
 export function createLead(lead: Lead): Lead {
-  assertDevStore();
+  assertMemoryStore();
   globalStore.leads.set(lead.id, lead);
   return lead;
 }
 
 export function updateLead(leadId: string, updates: Partial<Lead>): Lead | undefined {
-  assertDevStore();
+  assertMemoryStore();
   const lead = globalStore.leads.get(leadId);
   if (!lead) return undefined;
 
   const updated = { ...lead, ...updates };
   globalStore.leads.set(leadId, updated);
   return updated;
+}
+
+export function syncLeadsToMemory(workspaceId: string, leads: Lead[]): number {
+  assertMemoryStore();
+  let count = 0;
+  for (const lead of leads) {
+    if (lead.workspaceId !== workspaceId) continue;
+    globalStore.leads.set(lead.id, lead);
+    count += 1;
+  }
+  return count;
 }

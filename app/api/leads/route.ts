@@ -1,13 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getApiAuth } from "@/lib/api-auth";
-import { isCloudEnabled } from "@/lib/data/is-cloud";
+import { isCloudDataEnabled } from "@/lib/data/is-cloud";
 import {
   createLeadInDb,
   loadLeadsWithContacts,
   seedLeadsToDbIfEmpty,
   updateLeadInDb,
 } from "@/lib/data/leads-db";
-import { getLeads, createLead, updateLead, getSessionUser } from "@/lib/server/store";
+import { getLeads, createLead, updateLead, syncLeadsToMemory } from "@/lib/server/store";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { SEED_LEADS } from "@/lib/seed-data";
 import type { Lead } from "@/lib/types";
@@ -26,18 +26,14 @@ export async function GET(req: NextRequest) {
     if (!auth) return unauthorized();
 
     const supabase = createAdminClient();
-    if (isCloudEnabled() && supabase) {
+    if (isCloudDataEnabled() && supabase) {
       await seedLeadsToDbIfEmpty(supabase, auth.userId, auth.workspaceId, SEED_LEADS);
       const leads = await loadLeadsWithContacts(supabase, auth.userId, auth.workspaceId);
-      return NextResponse.json({ leads, batches: [] });
+      return NextResponse.json({ leads, batches: [], storage: "supabase" });
     }
 
-    const token = req.headers.get("authorization")?.replace(/^Bearer\s+/i, "");
-    const user = token ? getSessionUser(token) : null;
-    if (!user?.workspaceId) return unauthorized();
-
-    const leads = getLeads(user.workspaceId);
-    return NextResponse.json({ leads, batches: [] });
+    const leads = getLeads(auth.workspaceId);
+    return NextResponse.json({ leads, batches: [], storage: "memory" });
   } catch (error) {
     console.error("Get leads error:", error);
     return NextResponse.json({ error: "Internal server error" }, { status: 500 });
@@ -76,7 +72,7 @@ export async function POST(req: NextRequest) {
     };
 
     const supabase = createAdminClient();
-    if (isCloudEnabled() && supabase) {
+    if (isCloudDataEnabled() && supabase) {
       const lead = await createLeadInDb(supabase, auth.userId, auth.workspaceId, input);
       return NextResponse.json({ lead });
     }
@@ -107,7 +103,7 @@ export async function PUT(req: NextRequest) {
     }
 
     const supabase = createAdminClient();
-    if (isCloudEnabled() && supabase) {
+    if (isCloudDataEnabled() && supabase) {
       const updated = await updateLeadInDb(supabase, auth.userId, leadId, updates);
       if (!updated) {
         return NextResponse.json({ error: "Lead not found" }, { status: 404 });

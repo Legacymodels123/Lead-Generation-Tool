@@ -21,9 +21,9 @@ export function middleware(request: NextRequest) {
 
   const session = request.cookies.get(SESSION_COOKIE)?.value;
   if (!session) {
-    const loginUrl = new URL("/login", request.url);
-    loginUrl.searchParams.set("next", pathname);
-    return NextResponse.redirect(loginUrl);
+    const autoLogin = new URL("/api/auth/auto-login", request.url);
+    autoLogin.searchParams.set("next", pathname);
+    return NextResponse.redirect(autoLogin);
   }
 
   return NextResponse.next();
