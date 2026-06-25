@@ -64,6 +64,47 @@ export interface BatchRow {
   created_at: string;
 }
 
+const LEADS_SELECT_WITH_CITY = "*";
+const LEADS_SELECT_WITHOUT_CITY = [
+  "id",
+  "user_id",
+  "workspace_id",
+  "company",
+  "country",
+  "market",
+  "employees",
+  "revenue",
+  "sector",
+  "fit_reason",
+  "website",
+  "linkedin_company_url",
+  "hubspot_company_id",
+  "contact_name",
+  "contact_title",
+  "linkedin_url",
+  "status",
+  "batch",
+  "is_new",
+  "notes",
+  "message",
+  "score",
+  "ai_message",
+  "ai_summary",
+  "ai_next_step",
+  "custom_column_values",
+  "created_at",
+  "updated_at",
+].join(",");
+
+function isMissingCityColumnError(error: { message?: string } | null | undefined): boolean {
+  return Boolean(error?.message?.includes("Could not find the 'city' column"));
+}
+
+function omitCity<T extends Record<string, unknown>>(row: T): Omit<T, "city"> {
+  const { city: _city, ...rest } = row;
+  return rest;
+}
+
 export function contactToRow(contact: Contact, userId: string): ContactRow {
   return {
     id: contact.id,
@@ -201,16 +242,25 @@ export async function loadLeadsWithContacts(
 ): Promise<Lead[]> {
   if (!supabase) return [];
 
-  let query = supabase.from("leads").select("*").eq("user_id", userId);
-  if (workspaceId) {
-    query = query.eq("workspace_id", workspaceId);
-  }
+  const runLeadQuery = async (selectClause: string) => {
+    let query = supabase.from("leads").select(selectClause).eq("user_id", userId);
+    if (workspaceId) {
+      query = query.eq("workspace_id", workspaceId);
+    }
+    return query.order("created_at", { ascending: false });
+  };
 
-  const { data: leadRows, error } = await query.order("created_at", { ascending: false });
+  let { data: leadRows, error } = await runLeadQuery(LEADS_SELECT_WITH_CITY);
+  if (isMissingCityColumnError(error)) {
+    const fallback = await runLeadQuery(LEADS_SELECT_WITHOUT_CITY);
+    leadRows = fallback.data;
+    error = fallback.error;
+  }
 
   if (error || !leadRows?.length) return [];
 
-  const accountIds = (leadRows as LeadRow[]).map((r) => r.id);
+  const typedLeadRows = leadRows as unknown as LeadRow[];
+  const accountIds = typedLeadRows.map((r) => r.id);
   const { data: contactRows } = await supabase
     .from("contacts")
     .select("*")
@@ -224,7 +274,7 @@ export async function loadLeadsWithContacts(
     contactsByAccount.set(row.account_id, list);
   }
 
-  return (leadRows as LeadRow[]).map((row) =>
+  return typedLeadRows.map((row) =>
     rowToLead(row, contactsByAccount.get(row.id) ?? [])
   );
 }
@@ -258,7 +308,10 @@ export async function createLeadInDb(
     updated_at: new Date().toISOString(),
   };
 
-  const { error } = await supabase.from("leads").insert(row);
+  let { error } = await supabase.from("leads").insert(row);
+  if (isMissingCityColumnError(error)) {
+    ({ error } = await supabase.from("leads").insert(omitCity(row)));
+  }
   if (error) throw new Error(error.message);
 
   await saveContactsForLead(supabase, userId, normalized);
@@ -271,12 +324,23 @@ export async function updateLeadInDb(
   leadId: string,
   updates: Partial<Lead>
 ): Promise<Lead | null> {
-  const { data: row, error: fetchError } = await supabase
+  let { data: row, error: fetchError } = await supabase
     .from("leads")
-    .select("*")
+    .select(LEADS_SELECT_WITH_CITY)
     .eq("id", leadId)
     .eq("user_id", userId)
     .single();
+
+  if (isMissingCityColumnError(fetchError)) {
+    const fallback = await supabase
+      .from("leads")
+      .select(LEADS_SELECT_WITHOUT_CITY)
+      .eq("id", leadId)
+      .eq("user_id", userId)
+      .single();
+    row = fallback.data;
+    fetchError = fallback.error;
+  }
 
   if (fetchError || !row) return null;
 
@@ -308,13 +372,25 @@ export async function updateLeadInDb(
     updated_at: new Date().toISOString(),
   };
 
-  const { data, error } = await supabase
+  let { data, error } = await supabase
     .from("leads")
     .update(patch)
     .eq("id", leadId)
     .eq("user_id", userId)
     .select()
     .single();
+
+  if (isMissingCityColumnError(error)) {
+    const fallback = await supabase
+      .from("leads")
+      .update(omitCity(patch))
+      .eq("id", leadId)
+      .eq("user_id", userId)
+      .select(LEADS_SELECT_WITHOUT_CITY)
+      .single();
+    data = fallback.data;
+    error = fallback.error;
+  }
 
   if (error) throw new Error(error.message);
 
