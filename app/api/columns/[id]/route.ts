@@ -1,17 +1,30 @@
+import { NextRequest } from "next/server";
+import { getApiAuth } from "@/lib/api-auth";
 import { updateCustomColumn, deleteCustomColumn } from "@/lib/db/custom-columns";
+import { fetchCustomColumns } from "@/lib/db/custom-columns";
 
 export const dynamic = "force-dynamic";
 
 export async function PATCH(
-  request: Request,
+  request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const auth = await getApiAuth(request);
+    if (!auth) {
+      return Response.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
     const { id } = await params;
     const updates = await request.json();
 
     if (!id) {
       return Response.json({ error: "Missing column ID" }, { status: 400 });
+    }
+
+    const columns = await fetchCustomColumns(auth.workspaceId);
+    if (!columns.some((column) => column.id === id)) {
+      return Response.json({ error: "Column not found" }, { status: 404 });
     }
 
     const updated = await updateCustomColumn(id, updates);
@@ -28,14 +41,24 @@ export async function PATCH(
 }
 
 export async function DELETE(
-  request: Request,
+  request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
+    const auth = await getApiAuth(request);
+    if (!auth) {
+      return Response.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
     const { id } = await params;
 
     if (!id) {
       return Response.json({ error: "Missing column ID" }, { status: 400 });
+    }
+
+    const columns = await fetchCustomColumns(auth.workspaceId);
+    if (!columns.some((column) => column.id === id)) {
+      return Response.json({ error: "Column not found" }, { status: 404 });
     }
 
     const success = await deleteCustomColumn(id);

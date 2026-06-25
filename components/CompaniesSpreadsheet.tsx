@@ -4,11 +4,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { useAuth } from "@/lib/auth";
 import { useCompaniesPanel } from "@/lib/companies-panel-context";
-import {
-  createCustomColumnClient,
-  fetchCustomColumnsClient,
-  updateCustomColumnClient,
-} from "@/lib/custom-columns-client";
 import { customColumnGridId } from "@/lib/merge-grid-columns";
 import { WORKFLOW_PRESETS } from "@/lib/automation/presets";
 import { exportLeadsToCsv } from "@/lib/export-csv";
@@ -56,6 +51,7 @@ export default function CompaniesSpreadsheet() {
     addQuickRow,
     addLead,
     saveStatus,
+    customColumns,
     recalculateScores,
     runAiColumns,
     enrichLeads,
@@ -65,6 +61,8 @@ export default function CompaniesSpreadsheet() {
     refetchLeads,
     runColumnAutomation,
     researchWebsite,
+    createCustomColumn,
+    updateCustomColumn,
     deleteCustomColumn,
   } = useApp();
 
@@ -73,7 +71,6 @@ export default function CompaniesSpreadsheet() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const lastCheckboxIndex = useRef<number | null>(null);
-  const [customColumns, setCustomColumns] = useState<CustomColumn[]>([]);
   const [propertyCreatorOpen, setPropertyCreatorOpen] = useState(false);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [drawerMode, setDrawerMode] = useState<"create" | "edit">("create");
@@ -99,11 +96,6 @@ export default function CompaniesSpreadsheet() {
     setViews(loaded);
     setActiveViewId(loaded[0]?.id ?? "alle");
   }, [user?.id]);
-
-  useEffect(() => {
-    if (!user?.workspaceId) return;
-    void fetchCustomColumnsClient(user.workspaceId, token).then(setCustomColumns);
-  }, [user?.workspaceId, token]);
 
   useEffect(() => {
     if (selectedLeadId !== null) setSelectedId(selectedLeadId);
@@ -415,12 +407,11 @@ export default function CompaniesSpreadsheet() {
       throw new Error("no workspace");
     }
     if (drawerMode === "create") {
-      const created = await createCustomColumnClient(user.workspaceId, token, data);
+      const created = await createCustomColumn(data);
       if (!created) {
         showToast("Could not create property — check connection or sign in");
         throw new Error("create failed");
       }
-      setCustomColumns((prev) => [...prev, created]);
       const colId = customColumnGridId(created);
       if (!currentView.visibleColumns.includes(colId)) {
         handleColumnsChange([...currentView.visibleColumns, colId]);
@@ -429,9 +420,8 @@ export default function CompaniesSpreadsheet() {
       return;
     }
     if (!drawerColumn) return;
-    const updated = await updateCustomColumnClient(token, user.workspaceId, drawerColumn.id, data);
+    const updated = await updateCustomColumn(drawerColumn.id, data);
     if (!updated) throw new Error("update failed");
-    setCustomColumns((prev) => prev.map((c) => (c.id === updated.id ? updated : c)));
     showToast("Property saved");
   }
 
@@ -644,7 +634,6 @@ export default function CompaniesSpreadsheet() {
           workspaceId={user.workspaceId}
           token={token}
           customColumns={customColumns}
-          onCustomColumnsChange={setCustomColumns}
           onAddVisibleColumn={(colId) => {
             if (!currentView.visibleColumns.includes(colId)) {
               handleColumnsChange([...currentView.visibleColumns, colId]);

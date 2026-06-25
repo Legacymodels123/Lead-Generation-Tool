@@ -2,7 +2,6 @@
 
 import { useCallback, useMemo, useRef, useState } from "react";
 import { useApp } from "@/lib/store";
-import { createCustomColumnClient } from "@/lib/custom-columns-client";
 import { customColumnGridId } from "@/lib/merge-grid-columns";
 import {
   applyColumnMappings,
@@ -26,7 +25,6 @@ interface Props {
   workspaceId: string;
   token: string | null;
   customColumns: CustomColumn[];
-  onCustomColumnsChange: (columns: CustomColumn[]) => void;
   onAddVisibleColumn?: (colId: string) => void;
 }
 
@@ -42,10 +40,9 @@ export default function CsvImportModal({
   workspaceId,
   token,
   customColumns,
-  onCustomColumnsChange,
   onAddVisibleColumn,
 }: Props) {
-  const { addLead, leads } = useApp();
+  const { addLead, leads, createCustomColumn } = useApp();
   const inputRef = useRef<HTMLInputElement>(null);
   const [step, setStep] = useState<Step>("upload");
   const [csv, setCsv] = useState<ParsedCsv | null>(null);
@@ -178,16 +175,13 @@ export default function CsvImportModal({
     let resolvedMappings = [...mappings];
     const toCreate = collectNewProperties(resolvedMappings);
     const createdCols: CustomColumn[] = [];
-    let columnsSnapshot = [...customColumns];
-
     for (const field of toCreate) {
-      const created = await createCustomColumnClient(workspaceId, token, {
+      const created = await createCustomColumn({
         label: field.label,
         type: "text",
       });
       if (created) {
         createdCols.push(created);
-        columnsSnapshot = [...columnsSnapshot, created];
         fieldsCreated++;
         onAddVisibleColumn?.(customColumnGridId(created));
       } else {
@@ -196,7 +190,6 @@ export default function CsvImportModal({
     }
 
     if (createdCols.length) {
-      onCustomColumnsChange(columnsSnapshot);
       resolvedMappings = resolveMappingsAfterCreate(resolvedMappings, createdCols);
     }
 
@@ -264,9 +257,9 @@ export default function CsvImportModal({
     workspaceId,
     token,
     customColumns,
-    onCustomColumnsChange,
     onAddVisibleColumn,
     addLead,
+    createCustomColumn,
     fileName,
     leads,
   ]);

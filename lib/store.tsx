@@ -11,6 +11,10 @@ import {
 } from "react";
 import { useAuth } from "./auth";
 import { WORKFLOW_PRESETS } from "./automation/presets";
+import {
+  createCustomColumnClient,
+  updateCustomColumnClient,
+} from "@/lib/custom-columns-client";
 import type { Batch, Contact, CustomColumn, Lead } from "./types";
 import { DEFAULT_WORKSPACE_ID } from "./types";
 import type { AiColumnKey } from "./types/automation";
@@ -35,6 +39,18 @@ interface AppContextValue {
   addQuickRow: () => Promise<string | null>;
   refetchLeads: () => Promise<void>;
   refetchColumns: () => Promise<void>;
+  createCustomColumn: (payload: {
+    label: string;
+    type: CustomColumn["type"];
+    defaultValue?: string;
+    selectOptions?: string[];
+    aiPrompt?: string;
+    condition?: CustomColumn["condition"];
+  }) => Promise<CustomColumn | null>;
+  updateCustomColumn: (
+    columnId: string,
+    updates: Partial<CustomColumn>
+  ) => Promise<CustomColumn | null>;
   deleteCustomColumn: (columnId: string) => Promise<void>;
   recalculateScores: (ids: string[]) => Promise<string | null>;
   enrichLeads: (ids: string[]) => Promise<string | null>;
@@ -128,6 +144,37 @@ export function AppProvider({ children }: { children: ReactNode }) {
       console.error("Failed to fetch columns:", error);
     }
   }, [token, user?.workspaceId]);
+
+  const createCustomColumn = useCallback(
+    async (payload: {
+      label: string;
+      type: CustomColumn["type"];
+      defaultValue?: string;
+      selectOptions?: string[];
+      aiPrompt?: string;
+      condition?: CustomColumn["condition"];
+    }) => {
+      const workspaceId = user?.workspaceId ?? DEFAULT_WORKSPACE_ID;
+      const created = await createCustomColumnClient(workspaceId, token, payload);
+      if (created) {
+        setCustomColumns((prev) => [...prev, created]);
+      }
+      return created;
+    },
+    [token, user?.workspaceId]
+  );
+
+  const updateCustomColumn = useCallback(
+    async (columnId: string, updates: Partial<CustomColumn>) => {
+      const workspaceId = user?.workspaceId ?? DEFAULT_WORKSPACE_ID;
+      const updated = await updateCustomColumnClient(token, workspaceId, columnId, updates);
+      if (updated) {
+        setCustomColumns((prev) => prev.map((c) => (c.id === updated.id ? updated : c)));
+      }
+      return updated;
+    },
+    [token, user?.workspaceId]
+  );
 
   useEffect(() => {
     refetchLeads();
@@ -603,6 +650,8 @@ export function AppProvider({ children }: { children: ReactNode }) {
         addQuickRow,
         refetchLeads,
         refetchColumns,
+        createCustomColumn,
+        updateCustomColumn,
         deleteCustomColumn,
         recalculateScores,
         enrichLeads,

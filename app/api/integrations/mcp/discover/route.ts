@@ -1,11 +1,18 @@
 import { NextRequest, NextResponse } from "next/server";
+import { getApiAuth } from "@/lib/api-auth";
 import { discoverMcpServer } from "@/lib/mcp/client";
 import { getWorkspaceConfigForApi, saveWorkspaceConfigForApi } from "@/lib/server/workspace-config-api";
+import { canAccessWorkspace } from "@/lib/workspace-access";
 import type { McpConnection } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
 export async function POST(req: NextRequest) {
+  const auth = await getApiAuth(req);
+  if (!auth) {
+    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+  }
+
   const body = (await req.json()) as {
     workspaceId: string;
     server?: McpConnection;
@@ -15,6 +22,9 @@ export async function POST(req: NextRequest) {
 
   if (!body.workspaceId) {
     return NextResponse.json({ error: "Missing workspaceId" }, { status: 400 });
+  }
+  if (!canAccessWorkspace(auth, body.workspaceId)) {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
   let server = body.server;
