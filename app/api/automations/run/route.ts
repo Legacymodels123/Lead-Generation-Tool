@@ -4,7 +4,7 @@ import { generateAiColumn } from "@/lib/automation/claude";
 import { runWithWorkspaceAi } from "@/lib/automation/ai-context";
 import { getAiConfigAsync } from "@/lib/automation/provider";
 import { getApiAuth } from "@/lib/api-auth";
-import { isCloudEnabled } from "@/lib/data/is-cloud";
+import { isCloudDataEnabled } from "@/lib/data/is-cloud";
 import {
   loadLeadsWithContacts,
   rowToLead,
@@ -63,7 +63,7 @@ export async function POST(req: NextRequest) {
   const supabase = createAdminClient();
   let leads: Lead[] = [];
 
-  if (isCloudEnabled() && supabase) {
+  if (isCloudDataEnabled() && supabase) {
     const all = await loadLeadsWithContacts(supabase, auth.userId, auth.workspaceId);
     const idSet = new Set(leadIds);
     leads = all.filter((l) => idSet.has(l.id));
@@ -72,7 +72,7 @@ export async function POST(req: NextRequest) {
   if (!leads.length && body.leads?.length) {
     const idSet = new Set(leadIds);
     leads = body.leads.filter((l) => idSet.has(l.id));
-  } else if (!leads.length && !isCloudEnabled()) {
+  } else if (!leads.length && !isCloudDataEnabled()) {
     leads = leadIds
       .map((id) => getLead(id))
       .filter((l): l is Lead => Boolean(l));
@@ -106,7 +106,7 @@ export async function POST(req: NextRequest) {
 
     const merged = { ...lead, ...patch };
 
-    if (isCloudEnabled() && supabase) {
+    if (isCloudDataEnabled() && supabase) {
       const saved = await updateLeadInDb(supabase, auth.userId, lead.id, patch);
       updated.push(saved ?? merged);
     } else {

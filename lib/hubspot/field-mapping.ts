@@ -18,8 +18,8 @@ export async function loadColumnMappings(
   workspaceId: string
 ): Promise<ColumnMapping[]> {
   const { createAdminClient } = await import("@/lib/supabase/admin");
-  const { isCloudEnabled } = await import("@/lib/data/is-cloud");
-  if (!isCloudEnabled()) return [];
+  const { isCloudDataEnabled } = await import("@/lib/data/is-cloud");
+  if (!isCloudDataEnabled()) return [];
 
   const supabase = createAdminClient();
   if (!supabase) return [];

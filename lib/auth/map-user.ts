@@ -9,7 +9,7 @@ export async function mapSupabaseUserToAppUser(
   supabaseUser: SupabaseAuthUser
 ): Promise<User> {
   const metadata = (supabaseUser.user_metadata ?? {}) as Record<string, unknown>;
-  const workspaceId = await resolveWorkspaceIdForUser(admin, supabaseUser.id, metadata);
+  const workspaceId = await resolveWorkspaceIdForUser(admin, supabaseUser.id);
 
   return {
     id: supabaseUser.id,

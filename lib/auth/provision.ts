@@ -14,14 +14,8 @@ function slugify(value: string): string {
 
 export async function resolveWorkspaceIdForUser(
   admin: SupabaseClient,
-  userId: string,
-  metadata?: Record<string, unknown>
+  userId: string
 ): Promise<string> {
-  const fromMeta = metadata?.workspace_id;
-  if (typeof fromMeta === "string" && fromMeta.trim()) {
-    return fromMeta.trim();
-  }
-
   const { data: membership } = await admin
     .from("team_members")
     .select("workspace_id")

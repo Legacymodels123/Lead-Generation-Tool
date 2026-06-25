@@ -1,6 +1,6 @@
 import type { IntegrationProvider } from "@/lib/types";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { isCloudEnabled } from "@/lib/data/is-cloud";
+import { isCloudDataEnabled } from "@/lib/data/is-cloud";
 import { isMaskedSecret } from "@/lib/integrations/status";
 import { getWorkspaceConfigForApi } from "@/lib/server/workspace-config-api";
 import {
@@ -44,6 +44,9 @@ async function tokenFromWorkspaceConfig(
 
   const oauth = config.oauth as OAuthStore | undefined;
   if (provider === "hubspot") {
+    const { getValidHubSpotToken } = await import("@/lib/hubspot/oauth");
+    const token = await getValidHubSpotToken(workspaceId);
+    if (token) return token;
     return oauth?.hubspot_oauth?.accessToken ?? oauth?.hubspot?.accessToken ?? null;
   }
   if (provider === "linkedin") {
@@ -63,10 +66,7 @@ export async function getIntegrationToken(
     if (fromWorkspace) return fromWorkspace;
   }
 
-  const mem = getConnectionMemory(workspaceId, userId, provider);
-  if (mem?.accessToken) return mem.accessToken;
-
-  if (isCloudEnabled()) {
+  if (isCloudDataEnabled()) {
     const supabase = createAdminClient();
     if (supabase) {
       const { data } = await supabase
@@ -80,6 +80,9 @@ export async function getIntegrationToken(
 
       if (data?.access_token) return data.access_token as string;
     }
+  } else {
+    const mem = getConnectionMemory(workspaceId, userId, provider);
+    if (mem?.accessToken) return mem.accessToken;
   }
 
   const envKey = ENV_MAP[provider];
@@ -94,7 +97,7 @@ export async function listIntegrationConnections(
 ): Promise<Array<{ provider: IntegrationProvider; status: string; updatedAt?: string }>> {
   const results: Array<{ provider: IntegrationProvider; status: string; updatedAt?: string }> = [];
 
-  if (isCloudEnabled()) {
+  if (isCloudDataEnabled()) {
     const supabase = createAdminClient();
     if (supabase) {
       const { data } = await supabase
@@ -113,13 +116,15 @@ export async function listIntegrationConnections(
     }
   }
 
-  for (const conn of listConnectionsMemory(workspaceId, userId)) {
-    if (!results.some((r) => r.provider === conn.provider)) {
-      results.push({
-        provider: conn.provider,
-        status: conn.status,
-        updatedAt: conn.updatedAt,
-      });
+  if (!isCloudDataEnabled()) {
+    for (const conn of listConnectionsMemory(workspaceId, userId)) {
+      if (!results.some((r) => r.provider === conn.provider)) {
+        results.push({
+          provider: conn.provider,
+          status: conn.status,
+          updatedAt: conn.updatedAt,
+        });
+      }
     }
   }
 
@@ -153,9 +158,7 @@ export async function saveIntegrationConnection(
   provider: IntegrationProvider,
   accessToken: string
 ): Promise<void> {
-  saveConnectionMemory(workspaceId, userId, provider, accessToken);
-
-  if (isCloudEnabled()) {
+  if (isCloudDataEnabled()) {
     const supabase = createAdminClient();
     if (supabase) {
       const now = new Date().toISOString();
@@ -174,7 +177,10 @@ export async function saveIntegrationConnection(
         console.warn(`integration_connections upsert (${provider}):`, error.message);
       }
     }
+    return;
   }
+
+  saveConnectionMemory(workspaceId, userId, provider, accessToken);
 }
 
 export async function deleteIntegrationConnection(
@@ -182,9 +188,7 @@ export async function deleteIntegrationConnection(
   userId: string,
   provider: IntegrationProvider
 ): Promise<void> {
-  deleteConnectionMemory(workspaceId, userId, provider);
-
-  if (isCloudEnabled()) {
+  if (isCloudDataEnabled()) {
     const supabase = createAdminClient();
     if (supabase) {
       await supabase
@@ -194,5 +198,8 @@ export async function deleteIntegrationConnection(
         .eq("user_id", userId)
         .eq("provider", provider);
     }
+    return;
   }
+
+  deleteConnectionMemory(workspaceId, userId, provider);
 }

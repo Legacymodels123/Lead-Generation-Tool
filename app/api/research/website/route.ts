@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getApiAuth } from "@/lib/api-auth";
-import { isCloudEnabled } from "@/lib/data/is-cloud";
+import { isCloudDataEnabled } from "@/lib/data/is-cloud";
 import { loadLeadsWithContacts, updateLeadInDb } from "@/lib/data/leads-db";
 import { formatResearchResult, researchWebsite } from "@/lib/research/website";
 import { getLead, updateLead } from "@/lib/server/store";
@@ -29,7 +29,7 @@ export async function POST(req: NextRequest) {
   const supabase = createAdminClient();
   let lead: Lead | undefined;
 
-  if (isCloudEnabled() && supabase) {
+  if (isCloudDataEnabled() && supabase) {
     const all = await loadLeadsWithContacts(supabase, auth.userId, auth.workspaceId);
     lead = all.find((l) => l.id === leadId);
   } else {
@@ -60,7 +60,7 @@ export async function POST(req: NextRequest) {
     };
 
     let updated: Lead;
-    if (isCloudEnabled() && supabase) {
+    if (isCloudDataEnabled() && supabase) {
       const dbUpdated = await updateLeadInDb(supabase, auth.userId, leadId, patch);
       if (!dbUpdated) {
         return NextResponse.json({ error: "Failed to save research" }, { status: 500 });

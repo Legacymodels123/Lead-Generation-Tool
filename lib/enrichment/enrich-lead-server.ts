@@ -1,4 +1,4 @@
-import { isCloudEnabled } from "@/lib/data/is-cloud";
+import { isCloudDataEnabled } from "@/lib/data/is-cloud";
 import { loadLeadsWithContacts, updateLeadInDb } from "@/lib/data/leads-db";
 import { buildAccountWaterfall, buildEnrichmentWaterfall } from "@/lib/enrichment/waterfall";
 import { runWithWorkspaceAi } from "@/lib/automation/ai-context";
@@ -22,7 +22,7 @@ export async function enrichLeadForWorkspace(
     let lead: Lead | undefined;
     const supabase = createAdminClient();
 
-    if (isCloudEnabled() && supabase) {
+    if (isCloudDataEnabled() && supabase) {
       const all = await loadLeadsWithContacts(supabase, userId, workspaceId);
       lead = all.find((l) => l.id === leadId);
     } else {
@@ -84,7 +84,7 @@ export async function enrichLeadForWorkspace(
     patch.contacts = enrichedContacts;
     patch.score = fitScore(workingLead);
 
-    if (isCloudEnabled() && supabase) {
+    if (isCloudDataEnabled() && supabase) {
       const updated = await updateLeadInDb(supabase, userId, leadId, patch);
       if (!updated) return { error: "Failed to update lead" };
       return { lead: updated };

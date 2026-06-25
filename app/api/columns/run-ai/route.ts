@@ -3,7 +3,7 @@ import { generateCustomAiValue } from "@/lib/automation/claude";
 import { runWithWorkspaceAi } from "@/lib/automation/ai-context";
 import { getAiConfigAsync } from "@/lib/automation/provider";
 import { getApiAuth } from "@/lib/api-auth";
-import { isCloudEnabled } from "@/lib/data/is-cloud";
+import { isCloudDataEnabled } from "@/lib/data/is-cloud";
 import { loadLeadsWithContacts, updateLeadInDb } from "@/lib/data/leads-db";
 import { fetchCustomColumns } from "@/lib/db/custom-columns";
 import { shouldRunAiForLead } from "@/lib/column-conditions";
@@ -46,7 +46,7 @@ export async function POST(req: NextRequest) {
   }
 
     const supabase = createAdminClient();
-    const useCloud = isCloudEnabled() && supabase;
+    const useCloud = isCloudDataEnabled() && supabase;
     const cloudLeads = useCloud
       ? await loadLeadsWithContacts(supabase, auth.userId, auth.workspaceId)
       : null;
@@ -55,8 +55,8 @@ export async function POST(req: NextRequest) {
     for (const leadId of leadIds) {
       const lead =
         cloudLeads?.find((l) => l.id === leadId) ??
-        getLead(leadId) ??
-        getLeads(workspaceId).find((l) => l.id === leadId);
+        (useCloud ? undefined : getLead(leadId)) ??
+        (useCloud ? undefined : getLeads(workspaceId).find((l) => l.id === leadId));
       if (!lead) continue;
       if (!shouldRunAiForLead(column, lead)) continue;
 

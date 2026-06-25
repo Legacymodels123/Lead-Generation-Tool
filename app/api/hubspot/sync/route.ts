@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getApiAuth } from "@/lib/api-auth";
-import { isCloudEnabled } from "@/lib/data/is-cloud";
+import { isCloudDataEnabled } from "@/lib/data/is-cloud";
 import { loadLeadsWithContacts, updateLeadInDb } from "@/lib/data/leads-db";
 import { getIntegrationToken } from "@/lib/integrations/credentials";
 import { isHubSpotConfigured } from "@/lib/hubspot/client";
@@ -40,7 +40,7 @@ export async function POST(req: NextRequest) {
   const supabase = createAdminClient();
   let targets: Lead[] = [];
 
-  if (isCloudEnabled() && supabase) {
+  if (isCloudDataEnabled() && supabase) {
     const all = await loadLeadsWithContacts(supabase, auth.userId, auth.workspaceId);
     const idSet = new Set(leadIds);
     targets = all.filter((l) => idSet.has(l.id));
@@ -95,7 +95,7 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    if (isCloudEnabled() && supabase) {
+    if (isCloudDataEnabled() && supabase) {
       await updateLeadInDb(supabase, auth.userId, synced.id, {
         hubspotCompanyId: synced.hubspotCompanyId,
         contacts: synced.contacts,

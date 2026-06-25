@@ -35,11 +35,7 @@ export async function getApiAuth(req: NextRequest): Promise<ApiAuthContext | nul
     const admin = createAdminClient();
     if (admin) {
       try {
-        const workspaceId = await resolveWorkspaceIdForUser(
-          admin,
-          auth.userId,
-          auth.userMetadata
-        );
+        const workspaceId = await resolveWorkspaceIdForUser(admin, auth.userId);
         return {
           userId: auth.userId,
           workspaceId,
@@ -49,35 +45,12 @@ export async function getApiAuth(req: NextRequest): Promise<ApiAuthContext | nul
         /* fall through to memory */
       }
     }
-    const metaWorkspace = auth.userMetadata?.workspace_id;
-    if (typeof metaWorkspace === "string" && metaWorkspace.trim()) {
-      return {
-        userId: auth.userId,
-        workspaceId: metaWorkspace.trim(),
-        email: auth.email,
-      };
-    }
+    return null;
   }
 
   if (token) {
     const memory = memoryAuthFromToken(token);
     if (memory) return memory;
-
-    if (isAuthCloudEnabled() && auth) {
-      const admin = createAdminClient();
-      if (admin) {
-        const workspaceId = await resolveWorkspaceIdForUser(
-          admin,
-          auth.userId,
-          auth.userMetadata
-        );
-        return {
-          userId: auth.userId,
-          workspaceId,
-          email: auth.email,
-        };
-      }
-    }
   }
 
   return null;

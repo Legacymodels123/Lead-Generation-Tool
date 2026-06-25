@@ -1,6 +1,6 @@
 import type { CustomColumn, ColumnAutomation } from "@/lib/types";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { isCloudEnabled } from "@/lib/data/is-cloud";
+import { isCloudDataEnabled } from "@/lib/data/is-cloud";
 import {
   createCustomColumnMemory,
   deleteCustomColumnMemory,
@@ -64,7 +64,7 @@ function columnToRow(
 }
 
 export async function fetchCustomColumns(workspaceId: string): Promise<CustomColumn[]> {
-  if (isCloudEnabled()) {
+  if (isCloudDataEnabled()) {
     const supabase = createAdminClient();
     if (supabase) {
       const { data, error } = await supabase
@@ -73,9 +73,16 @@ export async function fetchCustomColumns(workspaceId: string): Promise<CustomCol
         .eq("workspace_id", workspaceId)
         .order("order", { ascending: true });
 
-      if (!error && data?.length) {
+      if (error) {
+        console.warn(`custom_columns fetch (${workspaceId}):`, error.message);
+        return [];
+      }
+
+      if (data?.length) {
         return (data as CustomColumnRow[]).map(rowToCustomColumn);
       }
+
+      return [];
     }
   }
 
@@ -86,7 +93,7 @@ export async function createCustomColumn(
   workspaceId: string,
   column: Omit<CustomColumn, "id" | "createdAt" | "updatedAt" | "workspaceId">
 ): Promise<CustomColumn | null> {
-  if (isCloudEnabled()) {
+  if (isCloudDataEnabled()) {
     const supabase = createAdminClient();
     if (supabase) {
       const now = new Date().toISOString();
@@ -96,7 +103,12 @@ export async function createCustomColumn(
         .select()
         .single();
 
-      if (!error && data) return rowToCustomColumn(data as CustomColumnRow);
+      if (error) {
+        console.warn(`custom_columns create (${workspaceId}):`, error.message);
+        return null;
+      }
+
+      if (data) return rowToCustomColumn(data as CustomColumnRow);
     }
   }
 
@@ -107,7 +119,7 @@ export async function updateCustomColumn(
   columnId: string,
   updates: Partial<CustomColumn>
 ): Promise<CustomColumn | null> {
-  if (isCloudEnabled()) {
+  if (isCloudDataEnabled()) {
     const supabase = createAdminClient();
     if (supabase) {
       const patch: Record<string, unknown> = { updated_at: new Date().toISOString() };
@@ -129,7 +141,12 @@ export async function updateCustomColumn(
         .select()
         .single();
 
-      if (!error && data) return rowToCustomColumn(data as CustomColumnRow);
+      if (error) {
+        console.warn(`custom_columns update (${columnId}):`, error.message);
+        return null;
+      }
+
+      if (data) return rowToCustomColumn(data as CustomColumnRow);
     }
   }
 
@@ -137,11 +154,15 @@ export async function updateCustomColumn(
 }
 
 export async function deleteCustomColumn(columnId: string): Promise<boolean> {
-  if (isCloudEnabled()) {
+  if (isCloudDataEnabled()) {
     const supabase = createAdminClient();
     if (supabase) {
       const { error } = await supabase.from("custom_columns").delete().eq("id", columnId);
-      if (!error) return true;
+      if (error) {
+        console.warn(`custom_columns delete (${columnId}):`, error.message);
+        return false;
+      }
+      return true;
     }
   }
 
@@ -152,7 +173,7 @@ export async function reorderCustomColumns(
   workspaceId: string,
   columnIds: string[]
 ): Promise<boolean> {
-  if (isCloudEnabled()) {
+  if (isCloudDataEnabled()) {
     const supabase = createAdminClient();
     if (supabase) {
       for (let index = 0; index < columnIds.length; index++) {
@@ -160,7 +181,10 @@ export async function reorderCustomColumns(
           .from("custom_columns")
           .update({ order: index, updated_at: new Date().toISOString() })
           .eq("id", columnIds[index]);
-        if (error) return false;
+        if (error) {
+          console.warn(`custom_columns reorder (${columnIds[index]}):`, error.message);
+          return false;
+        }
       }
       return true;
     }
